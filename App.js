@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
+import { useAudioPlayer } from 'expo-audio';
 import { Animated, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SOUND_CLICK, SOUND_CORRECT, SOUND_UNLOCK, SOUND_WRONG } from './sounds';
 
 // Triés par superficie croissante. areaKm2/population sont les valeurs brutes
 // utilisées pour le calcul du score et des seuils ; area est la chaîne déjà
@@ -159,7 +161,7 @@ function getScoreColor(score, threshold) {
   return '#5b6b7c';
 }
 
-function QuizModal({ visible, country, allCountries, onCorrect, onClose }) {
+function QuizModal({ visible, country, allCountries, onCorrect, onClose, playSound }) {
   const [question, setQuestion] = useState(null);
   const [selected, setSelected] = useState(null);
   const cardPulse = useRef(new Animated.Value(1)).current;
@@ -188,6 +190,9 @@ function QuizModal({ visible, country, allCountries, onCorrect, onClose }) {
         Animated.spring(cardPulse, { toValue: 1, useNativeDriver: true, friction: 4 }),
       ]).start();
       onCorrect();
+      playSound('correct');
+    } else {
+      playSound('wrong');
     }
     closeTimeoutRef.current = setTimeout(onClose, QUIZ_RESULT_AUTO_CLOSE_MS);
   };
@@ -236,7 +241,57 @@ function QuizModal({ visible, country, allCountries, onCorrect, onClose }) {
   );
 }
 
-function CountryCard({ country, allCountries, score, threshold, isPlayable, isUnlocked, onDevelop, onQuizCorrect }) {
+function CountryDetailModal({ visible, country, score, threshold, onClose }) {
+  if (!country) return null;
+  const contributions = getContributions(country, score);
+  const progressPct = Math.min(100, Math.round((score / threshold) * 100));
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.detailCard}>
+          <Pressable onPress={onClose} style={styles.detailCloseButton} hitSlop={8}>
+            <Text style={styles.detailCloseText}>✕</Text>
+          </Pressable>
+          <Text style={styles.detailFlag}>{country.flag}</Text>
+          <Text style={styles.detailName}>{country.name}</Text>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Superficie</Text>
+            <Text style={styles.detailValue}>
+              {country.area} · {contributions[0].value} pts
+            </Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Population</Text>
+            <Text style={styles.detailValue}>
+              {formatNumber(country.population)} hab. · {contributions[1].value} pts
+            </Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Capitale</Text>
+            <Text style={styles.detailValue}>{country.capital}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Langue officielle</Text>
+            <Text style={styles.detailValue}>{country.language}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Continent</Text>
+            <Text style={styles.detailValue}>{country.continent}</Text>
+          </View>
+          <Text style={[styles.score, styles.detailScore, { color: getScoreColor(score, threshold) }]}>
+            Score : {score} / {threshold}
+          </Text>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function CountryCard({ country, allCountries, score, threshold, isPlayable, isUnlocked, onDevelop, onQuizCorrect, playSound }) {
   const scoreAnim = useRef(new Animated.Value(0)).current;
   const [displayedScore, setDisplayedScore] = useState(0);
   const buttonScale = useRef(new Animated.Value(1)).current;
@@ -250,6 +305,7 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
   const [quizVisible, setQuizVisible] = useState(false);
   const [quizOnCooldown, setQuizOnCooldown] = useState(false);
   const cooldownTimeoutRef = useRef(null);
+  const [detailVisible, setDetailVisible] = useState(false);
 
   useEffect(() => {
     Animated.timing(scoreAnim, {
@@ -276,9 +332,10 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
         Animated.timing(celebrateAnim, { toValue: 0, duration: 450, useNativeDriver: false }),
       ]).start();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      playSound('unlock');
     }
     prevScoreRef.current = score;
-  }, [score, threshold, cardScale, celebrateAnim]);
+  }, [score, threshold, cardScale, celebrateAnim, playSound]);
 
   useEffect(() => {
     if (isUnlocked) {
@@ -311,6 +368,7 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
       Animated.spring(buttonScale, { toValue: 1, useNativeDriver: true, friction: 3, tension: 140 }),
     ]).start();
     onDevelop();
+    playSound('click');
   };
 
   const handleQuizClose = () => {
@@ -351,16 +409,18 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
       <Text style={styles.flagBackground} pointerEvents="none">
         {country.flag}
       </Text>
-      <View style={styles.cardHeader}>
-        <Text style={styles.countryName}>{country.name}</Text>
-        {showBadge && (
-          <Animated.Text
-            style={[styles.unlockedBadge, { opacity: badgeAnim, transform: [{ scale: badgeAnim }] }]}
-          >
-            Débloqué !
-          </Animated.Text>
-        )}
-      </View>
+      <Pressable onPress={() => setDetailVisible(true)}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.countryName}>{country.name}</Text>
+          {showBadge && (
+            <Animated.Text
+              style={[styles.unlockedBadge, { opacity: badgeAnim, transform: [{ scale: badgeAnim }] }]}
+            >
+              Débloqué !
+            </Animated.Text>
+          )}
+        </View>
+      </Pressable>
       <Text style={styles.criterion}>
         Superficie : {country.area} · {contributions[0].value} pts
       </Text>
@@ -408,6 +468,14 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
         allCountries={allCountries}
         onCorrect={onQuizCorrect}
         onClose={handleQuizClose}
+        playSound={playSound}
+      />
+      <CountryDetailModal
+        visible={detailVisible}
+        country={country}
+        score={displayedScore}
+        threshold={threshold}
+        onClose={() => setDetailVisible(false)}
       />
     </Animated.View>
   );
@@ -415,6 +483,32 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
 
 export default function App() {
   const [scores, setScores] = useState(COUNTRIES.map(() => 0));
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  const clickPlayer = useAudioPlayer(SOUND_CLICK);
+  const unlockPlayer = useAudioPlayer(SOUND_UNLOCK);
+  const correctPlayer = useAudioPlayer(SOUND_CORRECT);
+  const wrongPlayer = useAudioPlayer(SOUND_WRONG);
+  const soundPlayers = { click: clickPlayer, unlock: unlockPlayer, correct: correctPlayer, wrong: wrongPlayer };
+
+  // Rejoue le son depuis le début à chaque appel ; échoue silencieusement si
+  // la lecture audio n'est pas disponible sur la plateforme (le jeu reste
+  // jouable sans son dans tous les cas).
+  const playSound = (key) => {
+    if (!soundEnabled) return;
+    const player = soundPlayers[key];
+    if (!player) return;
+    player
+      .seekTo(0)
+      .catch(() => {})
+      .finally(() => {
+        try {
+          player.play();
+        } catch (e) {
+          // lecture audio indisponible : on continue sans son
+        }
+      });
+  };
 
   const handleDevelop = (index) => {
     setScores((prev) => {
@@ -442,7 +536,17 @@ export default function App() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="auto" />
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Jeu de Géographie</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.headerSpacer} />
+          <Text style={styles.title}>Jeu de Géographie</Text>
+          <Pressable
+            onPress={() => setSoundEnabled((v) => !v)}
+            style={styles.soundButton}
+            hitSlop={8}
+          >
+            <Text style={styles.soundButtonText}>{soundEnabled ? '🔊' : '🔇'}</Text>
+          </Pressable>
+        </View>
         {COUNTRIES.map((country, index) => {
           const isPlayable = index === 0 || scores[index - 1] >= getUnlockThreshold(COUNTRIES[index - 1]);
           return (
@@ -456,6 +560,7 @@ export default function App() {
               isUnlocked={index === latestUnlockedIndex}
               onDevelop={() => handleDevelop(index)}
               onQuizCorrect={() => handleQuizCorrect(index)}
+              playSound={playSound}
             />
           );
         })}
@@ -473,12 +578,36 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  headerSpacer: {
+    width: 36,
+  },
   title: {
+    flex: 1,
     fontSize: 26,
     fontWeight: 'bold',
-    marginBottom: 20,
     textAlign: 'center',
     color: '#1c2733',
+  },
+  soundButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  soundButtonText: {
+    fontSize: 18,
   },
   card: {
     backgroundColor: '#ffffff',
@@ -647,5 +776,63 @@ const styles = StyleSheet.create({
   },
   modalResultWrong: {
     color: '#d94f3d',
+  },
+  detailCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 24,
+  },
+  detailCloseButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f2f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  detailCloseText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#5b6b7c',
+  },
+  detailFlag: {
+    fontSize: 56,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  detailName: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#1c2733',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#eef1f5',
+  },
+  detailLabel: {
+    fontSize: 14,
+    color: '#5b6b7c',
+  },
+  detailValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1c2733',
+  },
+  detailScore: {
+    marginTop: 16,
+    textAlign: 'center',
+    fontSize: 17,
   },
 });
