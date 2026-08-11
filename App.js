@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
-import { useAudioPlayer } from 'expo-audio';
 import { Animated, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SOUND_CLICK, SOUND_CORRECT, SOUND_UNLOCK, SOUND_WRONG } from './sounds';
 
 // Triés par superficie croissante. areaKm2/population sont les valeurs brutes
 // utilisées pour le calcul du score et des seuils ; area est la chaîne déjà
@@ -161,7 +159,7 @@ function getScoreColor(score, threshold) {
   return '#5b6b7c';
 }
 
-function QuizModal({ visible, country, allCountries, onCorrect, onClose, playSound }) {
+function QuizModal({ visible, country, allCountries, onCorrect, onClose }) {
   const [question, setQuestion] = useState(null);
   const [selected, setSelected] = useState(null);
   const cardPulse = useRef(new Animated.Value(1)).current;
@@ -190,9 +188,6 @@ function QuizModal({ visible, country, allCountries, onCorrect, onClose, playSou
         Animated.spring(cardPulse, { toValue: 1, useNativeDriver: true, friction: 4 }),
       ]).start();
       onCorrect();
-      playSound('correct');
-    } else {
-      playSound('wrong');
     }
     closeTimeoutRef.current = setTimeout(onClose, QUIZ_RESULT_AUTO_CLOSE_MS);
   };
@@ -291,7 +286,7 @@ function CountryDetailModal({ visible, country, score, threshold, onClose }) {
   );
 }
 
-function CountryCard({ country, allCountries, score, threshold, isPlayable, isUnlocked, onDevelop, onQuizCorrect, playSound }) {
+function CountryCard({ country, allCountries, score, threshold, isPlayable, isUnlocked, onDevelop, onQuizCorrect }) {
   const scoreAnim = useRef(new Animated.Value(0)).current;
   const [displayedScore, setDisplayedScore] = useState(0);
   const buttonScale = useRef(new Animated.Value(1)).current;
@@ -332,10 +327,9 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
         Animated.timing(celebrateAnim, { toValue: 0, duration: 450, useNativeDriver: false }),
       ]).start();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      playSound('unlock');
     }
     prevScoreRef.current = score;
-  }, [score, threshold, cardScale, celebrateAnim, playSound]);
+  }, [score, threshold, cardScale, celebrateAnim]);
 
   useEffect(() => {
     if (isUnlocked) {
@@ -368,7 +362,6 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
       Animated.spring(buttonScale, { toValue: 1, useNativeDriver: true, friction: 3, tension: 140 }),
     ]).start();
     onDevelop();
-    playSound('click');
   };
 
   const handleQuizClose = () => {
@@ -468,7 +461,6 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
         allCountries={allCountries}
         onCorrect={onQuizCorrect}
         onClose={handleQuizClose}
-        playSound={playSound}
       />
       <CountryDetailModal
         visible={detailVisible}
@@ -483,32 +475,9 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
 
 export default function App() {
   const [scores, setScores] = useState(COUNTRIES.map(() => 0));
+  // Pas de son pour l'instant : l'état et le bouton restent en place pour
+  // brancher les effets sonores plus tard sans retoucher l'interface.
   const [soundEnabled, setSoundEnabled] = useState(true);
-
-  const clickPlayer = useAudioPlayer(SOUND_CLICK);
-  const unlockPlayer = useAudioPlayer(SOUND_UNLOCK);
-  const correctPlayer = useAudioPlayer(SOUND_CORRECT);
-  const wrongPlayer = useAudioPlayer(SOUND_WRONG);
-  const soundPlayers = { click: clickPlayer, unlock: unlockPlayer, correct: correctPlayer, wrong: wrongPlayer };
-
-  // Rejoue le son depuis le début à chaque appel ; échoue silencieusement si
-  // la lecture audio n'est pas disponible sur la plateforme (le jeu reste
-  // jouable sans son dans tous les cas).
-  const playSound = (key) => {
-    if (!soundEnabled) return;
-    const player = soundPlayers[key];
-    if (!player) return;
-    player
-      .seekTo(0)
-      .catch(() => {})
-      .finally(() => {
-        try {
-          player.play();
-        } catch (e) {
-          // lecture audio indisponible : on continue sans son
-        }
-      });
-  };
 
   const handleDevelop = (index) => {
     setScores((prev) => {
@@ -560,7 +529,6 @@ export default function App() {
               isUnlocked={index === latestUnlockedIndex}
               onDevelop={() => handleDevelop(index)}
               onQuizCorrect={() => handleQuizCorrect(index)}
-              playSound={playSound}
             />
           );
         })}
