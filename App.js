@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import * as Haptics from 'expo-haptics';
 import { Animated, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 const COUNTRIES = [
@@ -13,23 +14,53 @@ const COUNTRIES = [
 const SCORE_INCREMENT = 10;
 const UNLOCK_THRESHOLD = 100;
 
+function getScoreColor(score) {
+  const ratio = Math.min(score, UNLOCK_THRESHOLD) / UNLOCK_THRESHOLD;
+  if (ratio >= 0.7) return '#2e9e5b';
+  if (ratio >= 0.3) return '#d98a1f';
+  return '#5b6b7c';
+}
+
 function CountryCard({ country, score, isPlayable, isUnlocked, onDevelop }) {
-  const scoreScale = useRef(new Animated.Value(1)).current;
+  const scoreAnim = useRef(new Animated.Value(0)).current;
+  const [displayedScore, setDisplayedScore] = useState(0);
   const buttonScale = useRef(new Animated.Value(1)).current;
+  const cardScale = useRef(new Animated.Value(1)).current;
+  const celebrateAnim = useRef(new Animated.Value(0)).current;
   const badgeAnim = useRef(new Animated.Value(isUnlocked ? 1 : 0)).current;
+  const entranceAnim = useRef(new Animated.Value(isPlayable ? 1 : 0)).current;
   const [showBadge, setShowBadge] = useState(isUnlocked);
-  const isFirstScore = useRef(true);
+  const prevScoreRef = useRef(score);
+  const isFirstPlayable = useRef(true);
 
   useEffect(() => {
-    if (isFirstScore.current) {
-      isFirstScore.current = false;
-      return;
+    Animated.timing(scoreAnim, {
+      toValue: score,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
+  }, [score, scoreAnim]);
+
+  useEffect(() => {
+    const id = scoreAnim.addListener(({ value }) => setDisplayedScore(Math.round(value)));
+    return () => scoreAnim.removeListener(id);
+  }, [scoreAnim]);
+
+  useEffect(() => {
+    const prev = prevScoreRef.current;
+    if (prev < UNLOCK_THRESHOLD && score >= UNLOCK_THRESHOLD) {
+      Animated.sequence([
+        Animated.timing(cardScale, { toValue: 1.05, duration: 150, useNativeDriver: true }),
+        Animated.spring(cardScale, { toValue: 1, useNativeDriver: true, friction: 4 }),
+      ]).start();
+      Animated.sequence([
+        Animated.timing(celebrateAnim, { toValue: 1, duration: 150, useNativeDriver: false }),
+        Animated.timing(celebrateAnim, { toValue: 0, duration: 450, useNativeDriver: false }),
+      ]).start();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
-    Animated.sequence([
-      Animated.timing(scoreScale, { toValue: 1.3, duration: 120, useNativeDriver: true }),
-      Animated.spring(scoreScale, { toValue: 1, useNativeDriver: true, friction: 4 }),
-    ]).start();
-  }, [score, scoreScale]);
+    prevScoreRef.current = score;
+  }, [score, cardScale, celebrateAnim]);
 
   useEffect(() => {
     if (isUnlocked) {
@@ -42,12 +73,50 @@ function CountryCard({ country, score, isPlayable, isUnlocked, onDevelop }) {
     }
   }, [isUnlocked, badgeAnim]);
 
-  const animatePress = (toValue) => {
-    Animated.spring(buttonScale, { toValue, useNativeDriver: true, speed: 20, bounciness: 8 }).start();
+  useEffect(() => {
+    if (isFirstPlayable.current) {
+      isFirstPlayable.current = false;
+      return;
+    }
+    if (isPlayable) {
+      Animated.timing(entranceAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+    }
+  }, [isPlayable, entranceAnim]);
+
+  const handlePress = () => {
+    Animated.sequence([
+      Animated.timing(buttonScale, { toValue: 0.9, duration: 80, useNativeDriver: true }),
+      Animated.spring(buttonScale, { toValue: 1, useNativeDriver: true, friction: 3, tension: 140 }),
+    ]).start();
+    onDevelop();
   };
 
+  const progressWidth = scoreAnim.interpolate({
+    inputRange: [0, UNLOCK_THRESHOLD],
+    outputRange: ['0%', '100%'],
+    extrapolate: 'clamp',
+  });
+
   return (
-    <View style={styles.card}>
+    <Animated.View
+      style={[
+        styles.card,
+        {
+          opacity: entranceAnim.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }),
+          transform: [
+            { translateY: entranceAnim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) },
+            { scale: cardScale },
+          ],
+        },
+      ]}
+    >
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.celebrateOverlay,
+          { opacity: celebrateAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.35] }) },
+        ]}
+      />
       <Text style={styles.flagBackground} pointerEvents="none">
         {country.flag}
       </Text>
@@ -62,15 +131,13 @@ function CountryCard({ country, score, isPlayable, isUnlocked, onDevelop }) {
         )}
       </View>
       <Text style={styles.area}>Superficie : {country.area}</Text>
-      <Animated.Text style={[styles.score, { transform: [{ scale: scoreScale }] }]}>
-        Score : {score}
-      </Animated.Text>
-      <Pressable
-        onPressIn={() => isPlayable && animatePress(0.94)}
-        onPressOut={() => isPlayable && animatePress(1)}
-        onPress={onDevelop}
-        disabled={!isPlayable}
-      >
+      <Text style={[styles.score, { color: getScoreColor(displayedScore) }]}>
+        Score : {displayedScore}
+      </Text>
+      <View style={styles.progressTrack}>
+        <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
+      </View>
+      <Pressable onPress={handlePress} disabled={!isPlayable}>
         <Animated.View
           style={[
             styles.button,
@@ -78,12 +145,15 @@ function CountryCard({ country, score, isPlayable, isUnlocked, onDevelop }) {
             { transform: [{ scale: buttonScale }] },
           ]}
         >
-          <Text style={[styles.buttonText, !isPlayable && styles.buttonTextDisabled]}>
-            Développer
-          </Text>
+          <View style={styles.buttonContent}>
+            {!isPlayable && <Text style={styles.lockIcon}>🔒</Text>}
+            <Text style={[styles.buttonText, !isPlayable && styles.buttonTextDisabled]}>
+              Développer
+            </Text>
+          </View>
         </Animated.View>
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -154,6 +224,10 @@ const styles = StyleSheet.create({
     elevation: 2,
     overflow: 'hidden',
   },
+  celebrateOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#2e9e5b',
+  },
   flagBackground: {
     position: 'absolute',
     right: -14,
@@ -189,8 +263,19 @@ const styles = StyleSheet.create({
   score: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#2e5fa3',
     marginTop: 8,
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#e4e9ef',
+    marginTop: 6,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
+    backgroundColor: '#2e5fa3',
   },
   button: {
     marginTop: 12,
@@ -201,6 +286,14 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     backgroundColor: '#c3cad3',
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  lockIcon: {
+    fontSize: 14,
+    marginRight: 6,
   },
   buttonText: {
     color: '#ffffff',
