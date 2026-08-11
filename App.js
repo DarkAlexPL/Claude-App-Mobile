@@ -3,43 +3,84 @@ import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { Animated, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-// Triés par superficie croissante : plus le pays est grand, plus loin il apparaît
-// dans la liste et plus le seuil de déblocage du pays précédent est élevé
-// (voir getUnlockThreshold). Pour ajouter un pays, il suffit d'insérer une entrée
-// { id, name, area, flag } à la bonne position dans ce tableau.
+// Triés par superficie croissante. areaKm2/population sont les valeurs brutes
+// utilisées pour le calcul du score et des seuils ; area est la chaîne déjà
+// formatée pour l'affichage (gère les décimales de Vatican/Monaco).
+// Pour ajouter un pays : une entrée { id, name, area, areaKm2, population, flag }.
 const COUNTRIES = [
-  { id: 'va', name: 'Vatican', area: '0,44 km²', flag: '🇻🇦' },
-  { id: 'mc', name: 'Monaco', area: '2,1 km²', flag: '🇲🇨' },
-  { id: 'mt', name: 'Malte', area: '316 km²', flag: '🇲🇹' },
-  { id: 'ad', name: 'Andorre', area: '468 km²', flag: '🇦🇩' },
-  { id: 'sg', name: 'Singapour', area: '728 km²', flag: '🇸🇬' },
-  { id: 'lu', name: 'Luxembourg', area: '2 586 km²', flag: '🇱🇺' },
-  { id: 'pt', name: 'Portugal', area: '92 212 km²', flag: '🇵🇹' },
-  { id: 'gr', name: 'Grèce', area: '131 957 km²', flag: '🇬🇷' },
-  { id: 'jp', name: 'Japon', area: '377 975 km²', flag: '🇯🇵' },
-  { id: 'fr', name: 'France', area: '551 695 km²', flag: '🇫🇷' },
-  { id: 'ke', name: 'Kenya', area: '580 367 km²', flag: '🇰🇪' },
-  { id: 'ua', name: 'Ukraine', area: '603 550 km²', flag: '🇺🇦' },
-  { id: 'eg', name: 'Égypte', area: '1 002 450 km²', flag: '🇪🇬' },
-  { id: 'mx', name: 'Mexique', area: '1 964 375 km²', flag: '🇲🇽' },
-  { id: 'ar', name: 'Argentine', area: '2 780 400 km²', flag: '🇦🇷' },
-  { id: 'in', name: 'Inde', area: '3 287 263 km²', flag: '🇮🇳' },
-  { id: 'au', name: 'Australie', area: '7 692 024 km²', flag: '🇦🇺' },
-  { id: 'br', name: 'Brésil', area: '8 515 767 km²', flag: '🇧🇷' },
-  { id: 'cn', name: 'Chine', area: '9 596 961 km²', flag: '🇨🇳' },
-  { id: 'ca', name: 'Canada', area: '9 984 670 km²', flag: '🇨🇦' },
+  { id: 'va', name: 'Vatican', area: '0,44 km²', areaKm2: 0.44, population: 800, flag: '🇻🇦' },
+  { id: 'mc', name: 'Monaco', area: '2,1 km²', areaKm2: 2.1, population: 39000, flag: '🇲🇨' },
+  { id: 'mt', name: 'Malte', area: '316 km²', areaKm2: 316, population: 530000, flag: '🇲🇹' },
+  { id: 'ad', name: 'Andorre', area: '468 km²', areaKm2: 468, population: 80000, flag: '🇦🇩' },
+  { id: 'sg', name: 'Singapour', area: '728 km²', areaKm2: 728, population: 5900000, flag: '🇸🇬' },
+  { id: 'lu', name: 'Luxembourg', area: '2 586 km²', areaKm2: 2586, population: 660000, flag: '🇱🇺' },
+  { id: 'pt', name: 'Portugal', area: '92 212 km²', areaKm2: 92212, population: 10300000, flag: '🇵🇹' },
+  { id: 'gr', name: 'Grèce', area: '131 957 km²', areaKm2: 131957, population: 10400000, flag: '🇬🇷' },
+  { id: 'jp', name: 'Japon', area: '377 975 km²', areaKm2: 377975, population: 123000000, flag: '🇯🇵' },
+  { id: 'fr', name: 'France', area: '551 695 km²', areaKm2: 551695, population: 68000000, flag: '🇫🇷' },
+  { id: 'ke', name: 'Kenya', area: '580 367 km²', areaKm2: 580367, population: 55000000, flag: '🇰🇪' },
+  { id: 'ua', name: 'Ukraine', area: '603 550 km²', areaKm2: 603550, population: 36000000, flag: '🇺🇦' },
+  { id: 'eg', name: 'Égypte', area: '1 002 450 km²', areaKm2: 1002450, population: 112000000, flag: '🇪🇬' },
+  { id: 'mx', name: 'Mexique', area: '1 964 375 km²', areaKm2: 1964375, population: 128000000, flag: '🇲🇽' },
+  { id: 'ar', name: 'Argentine', area: '2 780 400 km²', areaKm2: 2780400, population: 46000000, flag: '🇦🇷' },
+  { id: 'in', name: 'Inde', area: '3 287 263 km²', areaKm2: 3287263, population: 1428000000, flag: '🇮🇳' },
+  { id: 'au', name: 'Australie', area: '7 692 024 km²', areaKm2: 7692024, population: 26000000, flag: '🇦🇺' },
+  { id: 'br', name: 'Brésil', area: '8 515 767 km²', areaKm2: 8515767, population: 216000000, flag: '🇧🇷' },
+  { id: 'cn', name: 'Chine', area: '9 596 961 km²', areaKm2: 9596961, population: 1410000000, flag: '🇨🇳' },
+  { id: 'ca', name: 'Canada', area: '9 984 670 km²', areaKm2: 9984670, population: 39000000, flag: '🇨🇦' },
 ];
 
 const SCORE_INCREMENT = 10;
-const BASE_UNLOCK_THRESHOLD = 50;
-const UNLOCK_THRESHOLD_STEP = 10;
 
-// Le seuil nécessaire pour débloquer le pays suivant augmente légèrement à
-// chaque palier de la liste, pour une difficulté progressive plutôt qu'un
-// seuil fixe. Formule (et non valeurs codées en dur) afin que la difficulté
-// s'étende automatiquement si la liste grandit vers l'ensemble des ~195 pays.
-function getUnlockThreshold(index) {
-  return BASE_UNLOCK_THRESHOLD + index * UNLOCK_THRESHOLD_STEP;
+// Critères de score : chacun a un poids et une valeur de référence (le maximum
+// réaliste au niveau mondial, pas seulement dans la liste actuelle) afin que
+// les seuils restent stables si la liste s'étend vers les ~195 pays. Pour
+// ajouter un critère plus tard (PIB, armée, richesse...), il suffit d'ajouter
+// une entrée ici et un champ correspondant sur chaque pays.
+const SCORE_CRITERIA = [
+  { key: 'areaKm2', label: 'Superficie', weight: 0.5, maxValue: 17098242 }, // superficie de la Russie
+  { key: 'population', label: 'Population', weight: 0.5, maxValue: 1450000000 }, // ~ Inde/Chine
+];
+
+const MIN_UNLOCK_THRESHOLD = 50;
+const UNLOCK_THRESHOLD_RANGE = 300;
+
+function formatNumber(value) {
+  return Math.round(value)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+// « Taille » normalisée d'un pays (0 à ~1) combinant tous les critères de
+// SCORE_CRITERIA selon leur poids respectif.
+function getSizeIndex(country) {
+  return SCORE_CRITERIA.reduce(
+    (total, criterion) => total + criterion.weight * (country[criterion.key] / criterion.maxValue),
+    0
+  );
+}
+
+// Le seuil de déblocage du pays suivant est calibré sur la taille réelle
+// (superficie + population) du pays courant plutôt que sur sa seule position
+// dans la liste, arrondi au multiple de 10 le plus proche (clics de 10 pts).
+function getUnlockThreshold(country) {
+  const sizeIndex = getSizeIndex(country);
+  return Math.round((MIN_UNLOCK_THRESHOLD + sizeIndex * UNLOCK_THRESHOLD_RANGE) / 10) * 10;
+}
+
+// Répartit le score courant entre les critères, proportionnellement à la
+// part de chacun dans la taille normalisée du pays.
+function getContributions(country, score) {
+  const sizeIndex = getSizeIndex(country);
+  let remaining = score;
+  const contributions = SCORE_CRITERIA.map((criterion, i) => {
+    const share = sizeIndex > 0 ? (criterion.weight * (country[criterion.key] / criterion.maxValue)) / sizeIndex : 1 / SCORE_CRITERIA.length;
+    const isLast = i === SCORE_CRITERIA.length - 1;
+    const value = isLast ? remaining : Math.round(score * share);
+    remaining -= value;
+    return { ...criterion, value };
+  });
+  return contributions;
 }
 
 function getScoreColor(score, threshold) {
@@ -125,6 +166,8 @@ function CountryCard({ country, score, threshold, isPlayable, isUnlocked, onDeve
     extrapolate: 'clamp',
   });
 
+  const contributions = getContributions(country, displayedScore);
+
   return (
     <Animated.View
       style={[
@@ -158,7 +201,12 @@ function CountryCard({ country, score, threshold, isPlayable, isUnlocked, onDeve
           </Animated.Text>
         )}
       </View>
-      <Text style={styles.area}>Superficie : {country.area}</Text>
+      <Text style={styles.criterion}>
+        Superficie : {country.area} · {contributions[0].value} pts
+      </Text>
+      <Text style={styles.criterion}>
+        Population : {formatNumber(country.population)} habitants · {contributions[1].value} pts
+      </Text>
       <Text style={[styles.score, { color: getScoreColor(displayedScore, threshold) }]}>
         Score : {displayedScore} / {threshold}
       </Text>
@@ -198,7 +246,7 @@ export default function App() {
 
   const latestUnlockedIndex = COUNTRIES.reduce(
     (latest, _country, index) =>
-      index > 0 && scores[index - 1] >= getUnlockThreshold(index - 1) ? index : latest,
+      index > 0 && scores[index - 1] >= getUnlockThreshold(COUNTRIES[index - 1]) ? index : latest,
     null
   );
 
@@ -208,13 +256,13 @@ export default function App() {
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Jeu de Géographie</Text>
         {COUNTRIES.map((country, index) => {
-          const isPlayable = index === 0 || scores[index - 1] >= getUnlockThreshold(index - 1);
+          const isPlayable = index === 0 || scores[index - 1] >= getUnlockThreshold(COUNTRIES[index - 1]);
           return (
             <CountryCard
               key={country.id}
               country={country}
               score={scores[index]}
-              threshold={getUnlockThreshold(index)}
+              threshold={getUnlockThreshold(country)}
               isPlayable={isPlayable}
               isUnlocked={index === latestUnlockedIndex}
               onDevelop={() => handleDevelop(index)}
@@ -285,7 +333,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
   },
-  area: {
+  criterion: {
     fontSize: 14,
     color: '#5b6b7c',
     marginTop: 4,
