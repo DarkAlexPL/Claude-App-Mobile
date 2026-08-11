@@ -24,6 +24,11 @@ export default function App() {
     });
   };
 
+  const latestUnlockedIndex = COUNTRIES.reduce(
+    (latest, _country, index) => (index > 0 && scores[index - 1] >= UNLOCK_THRESHOLD ? index : latest),
+    null
+  );
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="auto" />
@@ -31,7 +36,7 @@ export default function App() {
         <Text style={styles.title}>Jeu de Géographie</Text>
         {COUNTRIES.map((country, index) => {
           const isPlayable = index === 0 || scores[index - 1] >= UNLOCK_THRESHOLD;
-          const isUnlocked = index > 0 && isPlayable;
+          const isUnlocked = index === latestUnlockedIndex;
           return (
             <View key={country.id} style={styles.card}>
               <View style={styles.cardHeader}>
