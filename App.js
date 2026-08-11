@@ -1,17 +1,91 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 const COUNTRIES = [
-  { id: '1', name: 'France', area: '551 695 km²' },
-  { id: '2', name: 'Brésil', area: '8 515 767 km²' },
-  { id: '3', name: 'Japon', area: '377 975 km²' },
-  { id: '4', name: 'Australie', area: '7 692 024 km²' },
-  { id: '5', name: 'Égypte', area: '1 002 450 km²' },
+  { id: '1', name: 'France', area: '551 695 km²', flag: '🇫🇷' },
+  { id: '2', name: 'Brésil', area: '8 515 767 km²', flag: '🇧🇷' },
+  { id: '3', name: 'Japon', area: '377 975 km²', flag: '🇯🇵' },
+  { id: '4', name: 'Australie', area: '7 692 024 km²', flag: '🇦🇺' },
+  { id: '5', name: 'Égypte', area: '1 002 450 km²', flag: '🇪🇬' },
 ];
 
 const SCORE_INCREMENT = 10;
 const UNLOCK_THRESHOLD = 100;
+
+function CountryCard({ country, score, isPlayable, isUnlocked, onDevelop }) {
+  const scoreScale = useRef(new Animated.Value(1)).current;
+  const buttonScale = useRef(new Animated.Value(1)).current;
+  const badgeAnim = useRef(new Animated.Value(isUnlocked ? 1 : 0)).current;
+  const [showBadge, setShowBadge] = useState(isUnlocked);
+  const isFirstScore = useRef(true);
+
+  useEffect(() => {
+    if (isFirstScore.current) {
+      isFirstScore.current = false;
+      return;
+    }
+    Animated.sequence([
+      Animated.timing(scoreScale, { toValue: 1.3, duration: 120, useNativeDriver: true }),
+      Animated.spring(scoreScale, { toValue: 1, useNativeDriver: true, friction: 4 }),
+    ]).start();
+  }, [score, scoreScale]);
+
+  useEffect(() => {
+    if (isUnlocked) {
+      setShowBadge(true);
+      Animated.spring(badgeAnim, { toValue: 1, useNativeDriver: true, friction: 5 }).start();
+    } else {
+      Animated.timing(badgeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+        setShowBadge(false);
+      });
+    }
+  }, [isUnlocked, badgeAnim]);
+
+  const animatePress = (toValue) => {
+    Animated.spring(buttonScale, { toValue, useNativeDriver: true, speed: 20, bounciness: 8 }).start();
+  };
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.flagBackground} pointerEvents="none">
+        {country.flag}
+      </Text>
+      <View style={styles.cardHeader}>
+        <Text style={styles.countryName}>{country.name}</Text>
+        {showBadge && (
+          <Animated.Text
+            style={[styles.unlockedBadge, { opacity: badgeAnim, transform: [{ scale: badgeAnim }] }]}
+          >
+            Débloqué !
+          </Animated.Text>
+        )}
+      </View>
+      <Text style={styles.area}>Superficie : {country.area}</Text>
+      <Animated.Text style={[styles.score, { transform: [{ scale: scoreScale }] }]}>
+        Score : {score}
+      </Animated.Text>
+      <Pressable
+        onPressIn={() => isPlayable && animatePress(0.94)}
+        onPressOut={() => isPlayable && animatePress(1)}
+        onPress={onDevelop}
+        disabled={!isPlayable}
+      >
+        <Animated.View
+          style={[
+            styles.button,
+            !isPlayable && styles.buttonDisabled,
+            { transform: [{ scale: buttonScale }] },
+          ]}
+        >
+          <Text style={[styles.buttonText, !isPlayable && styles.buttonTextDisabled]}>
+            Développer
+          </Text>
+        </Animated.View>
+      </Pressable>
+    </View>
+  );
+}
 
 export default function App() {
   const [scores, setScores] = useState(COUNTRIES.map(() => 0));
@@ -36,25 +110,15 @@ export default function App() {
         <Text style={styles.title}>Jeu de Géographie</Text>
         {COUNTRIES.map((country, index) => {
           const isPlayable = index === 0 || scores[index - 1] >= UNLOCK_THRESHOLD;
-          const isUnlocked = index === latestUnlockedIndex;
           return (
-            <View key={country.id} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.countryName}>{country.name}</Text>
-                {isUnlocked && <Text style={styles.unlockedBadge}>Débloqué !</Text>}
-              </View>
-              <Text style={styles.area}>Superficie : {country.area}</Text>
-              <Text style={styles.score}>Score : {scores[index]}</Text>
-              <TouchableOpacity
-                style={[styles.button, !isPlayable && styles.buttonDisabled]}
-                onPress={() => handleDevelop(index)}
-                disabled={!isPlayable}
-              >
-                <Text style={[styles.buttonText, !isPlayable && styles.buttonTextDisabled]}>
-                  Développer
-                </Text>
-              </TouchableOpacity>
-            </View>
+            <CountryCard
+              key={country.id}
+              country={country}
+              score={scores[index]}
+              isPlayable={isPlayable}
+              isUnlocked={index === latestUnlockedIndex}
+              onDevelop={() => handleDevelop(index)}
+            />
           );
         })}
       </ScrollView>
@@ -88,6 +152,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 2,
+    overflow: 'hidden',
+  },
+  flagBackground: {
+    position: 'absolute',
+    right: -14,
+    top: -24,
+    fontSize: 100,
+    opacity: 0.12,
   },
   cardHeader: {
     flexDirection: 'row',
