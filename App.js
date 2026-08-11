@@ -30,7 +30,8 @@ export default function App() {
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Jeu de Géographie</Text>
         {COUNTRIES.map((country, index) => {
-          const isUnlocked = index > 0 && scores[index - 1] >= UNLOCK_THRESHOLD;
+          const isPlayable = index === 0 || scores[index - 1] >= UNLOCK_THRESHOLD;
+          const isUnlocked = index > 0 && isPlayable;
           return (
             <View key={country.id} style={styles.card}>
               <View style={styles.cardHeader}>
@@ -39,8 +40,14 @@ export default function App() {
               </View>
               <Text style={styles.area}>Superficie : {country.area}</Text>
               <Text style={styles.score}>Score : {scores[index]}</Text>
-              <TouchableOpacity style={styles.button} onPress={() => handleDevelop(index)}>
-                <Text style={styles.buttonText}>Développer</Text>
+              <TouchableOpacity
+                style={[styles.button, !isPlayable && styles.buttonDisabled]}
+                onPress={() => handleDevelop(index)}
+                disabled={!isPlayable}
+              >
+                <Text style={[styles.buttonText, !isPlayable && styles.buttonTextDisabled]}>
+                  Développer
+                </Text>
               </TouchableOpacity>
             </View>
           );
@@ -115,9 +122,15 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
+  buttonDisabled: {
+    backgroundColor: '#c3cad3',
+  },
   buttonText: {
     color: '#ffffff',
     fontWeight: '600',
     fontSize: 15,
+  },
+  buttonTextDisabled: {
+    color: '#7c8794',
   },
 });
