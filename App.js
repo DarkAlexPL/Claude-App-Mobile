@@ -1,36 +1,41 @@
 import { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
-import { Animated, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 // Triés par superficie croissante. areaKm2/population sont les valeurs brutes
 // utilisées pour le calcul du score et des seuils ; area est la chaîne déjà
-// formatée pour l'affichage (gère les décimales de Vatican/Monaco).
-// Pour ajouter un pays : une entrée { id, name, area, areaKm2, population, flag }.
+// formatée pour l'affichage (gère les décimales de Vatican/Monaco). capital,
+// language et continent alimentent les questions de quiz (voir QUIZ_QUESTION_TYPES).
+// Pour ajouter un pays : une entrée { id, name, area, areaKm2, population, flag,
+// capital, language, continent }.
 const COUNTRIES = [
-  { id: 'va', name: 'Vatican', area: '0,44 km²', areaKm2: 0.44, population: 800, flag: '🇻🇦' },
-  { id: 'mc', name: 'Monaco', area: '2,1 km²', areaKm2: 2.1, population: 39000, flag: '🇲🇨' },
-  { id: 'mt', name: 'Malte', area: '316 km²', areaKm2: 316, population: 530000, flag: '🇲🇹' },
-  { id: 'ad', name: 'Andorre', area: '468 km²', areaKm2: 468, population: 80000, flag: '🇦🇩' },
-  { id: 'sg', name: 'Singapour', area: '728 km²', areaKm2: 728, population: 5900000, flag: '🇸🇬' },
-  { id: 'lu', name: 'Luxembourg', area: '2 586 km²', areaKm2: 2586, population: 660000, flag: '🇱🇺' },
-  { id: 'pt', name: 'Portugal', area: '92 212 km²', areaKm2: 92212, population: 10300000, flag: '🇵🇹' },
-  { id: 'gr', name: 'Grèce', area: '131 957 km²', areaKm2: 131957, population: 10400000, flag: '🇬🇷' },
-  { id: 'jp', name: 'Japon', area: '377 975 km²', areaKm2: 377975, population: 123000000, flag: '🇯🇵' },
-  { id: 'fr', name: 'France', area: '551 695 km²', areaKm2: 551695, population: 68000000, flag: '🇫🇷' },
-  { id: 'ke', name: 'Kenya', area: '580 367 km²', areaKm2: 580367, population: 55000000, flag: '🇰🇪' },
-  { id: 'ua', name: 'Ukraine', area: '603 550 km²', areaKm2: 603550, population: 36000000, flag: '🇺🇦' },
-  { id: 'eg', name: 'Égypte', area: '1 002 450 km²', areaKm2: 1002450, population: 112000000, flag: '🇪🇬' },
-  { id: 'mx', name: 'Mexique', area: '1 964 375 km²', areaKm2: 1964375, population: 128000000, flag: '🇲🇽' },
-  { id: 'ar', name: 'Argentine', area: '2 780 400 km²', areaKm2: 2780400, population: 46000000, flag: '🇦🇷' },
-  { id: 'in', name: 'Inde', area: '3 287 263 km²', areaKm2: 3287263, population: 1428000000, flag: '🇮🇳' },
-  { id: 'au', name: 'Australie', area: '7 692 024 km²', areaKm2: 7692024, population: 26000000, flag: '🇦🇺' },
-  { id: 'br', name: 'Brésil', area: '8 515 767 km²', areaKm2: 8515767, population: 216000000, flag: '🇧🇷' },
-  { id: 'cn', name: 'Chine', area: '9 596 961 km²', areaKm2: 9596961, population: 1410000000, flag: '🇨🇳' },
-  { id: 'ca', name: 'Canada', area: '9 984 670 km²', areaKm2: 9984670, population: 39000000, flag: '🇨🇦' },
+  { id: 'va', name: 'Vatican', area: '0,44 km²', areaKm2: 0.44, population: 800, flag: '🇻🇦', capital: 'Cité du Vatican', language: 'Italien', continent: 'Europe' },
+  { id: 'mc', name: 'Monaco', area: '2,1 km²', areaKm2: 2.1, population: 39000, flag: '🇲🇨', capital: 'Monaco-Ville', language: 'Français', continent: 'Europe' },
+  { id: 'mt', name: 'Malte', area: '316 km²', areaKm2: 316, population: 530000, flag: '🇲🇹', capital: 'La Valette', language: 'Maltais', continent: 'Europe' },
+  { id: 'ad', name: 'Andorre', area: '468 km²', areaKm2: 468, population: 80000, flag: '🇦🇩', capital: 'Andorre-la-Vieille', language: 'Catalan', continent: 'Europe' },
+  { id: 'sg', name: 'Singapour', area: '728 km²', areaKm2: 728, population: 5900000, flag: '🇸🇬', capital: 'Singapour', language: 'Anglais', continent: 'Asie' },
+  { id: 'lu', name: 'Luxembourg', area: '2 586 km²', areaKm2: 2586, population: 660000, flag: '🇱🇺', capital: 'Luxembourg', language: 'Luxembourgeois', continent: 'Europe' },
+  { id: 'pt', name: 'Portugal', area: '92 212 km²', areaKm2: 92212, population: 10300000, flag: '🇵🇹', capital: 'Lisbonne', language: 'Portugais', continent: 'Europe' },
+  { id: 'gr', name: 'Grèce', area: '131 957 km²', areaKm2: 131957, population: 10400000, flag: '🇬🇷', capital: 'Athènes', language: 'Grec', continent: 'Europe' },
+  { id: 'jp', name: 'Japon', area: '377 975 km²', areaKm2: 377975, population: 123000000, flag: '🇯🇵', capital: 'Tokyo', language: 'Japonais', continent: 'Asie' },
+  { id: 'fr', name: 'France', area: '551 695 km²', areaKm2: 551695, population: 68000000, flag: '🇫🇷', capital: 'Paris', language: 'Français', continent: 'Europe' },
+  { id: 'ke', name: 'Kenya', area: '580 367 km²', areaKm2: 580367, population: 55000000, flag: '🇰🇪', capital: 'Nairobi', language: 'Swahili', continent: 'Afrique' },
+  { id: 'ua', name: 'Ukraine', area: '603 550 km²', areaKm2: 603550, population: 36000000, flag: '🇺🇦', capital: 'Kiev', language: 'Ukrainien', continent: 'Europe' },
+  { id: 'eg', name: 'Égypte', area: '1 002 450 km²', areaKm2: 1002450, population: 112000000, flag: '🇪🇬', capital: 'Le Caire', language: 'Arabe', continent: 'Afrique' },
+  { id: 'mx', name: 'Mexique', area: '1 964 375 km²', areaKm2: 1964375, population: 128000000, flag: '🇲🇽', capital: 'Mexico', language: 'Espagnol', continent: 'Amérique' },
+  { id: 'ar', name: 'Argentine', area: '2 780 400 km²', areaKm2: 2780400, population: 46000000, flag: '🇦🇷', capital: 'Buenos Aires', language: 'Espagnol', continent: 'Amérique' },
+  { id: 'in', name: 'Inde', area: '3 287 263 km²', areaKm2: 3287263, population: 1428000000, flag: '🇮🇳', capital: 'New Delhi', language: 'Hindi', continent: 'Asie' },
+  { id: 'au', name: 'Australie', area: '7 692 024 km²', areaKm2: 7692024, population: 26000000, flag: '🇦🇺', capital: 'Canberra', language: 'Anglais', continent: 'Océanie' },
+  { id: 'br', name: 'Brésil', area: '8 515 767 km²', areaKm2: 8515767, population: 216000000, flag: '🇧🇷', capital: 'Brasília', language: 'Portugais', continent: 'Amérique' },
+  { id: 'cn', name: 'Chine', area: '9 596 961 km²', areaKm2: 9596961, population: 1410000000, flag: '🇨🇳', capital: 'Pékin', language: 'Mandarin', continent: 'Asie' },
+  { id: 'ca', name: 'Canada', area: '9 984 670 km²', areaKm2: 9984670, population: 39000000, flag: '🇨🇦', capital: 'Ottawa', language: 'Anglais', continent: 'Amérique' },
 ];
 
 const SCORE_INCREMENT = 10;
+const QUIZ_BONUS = 20;
+const QUIZ_COOLDOWN_MS = 6000;
+const QUIZ_RESULT_AUTO_CLOSE_MS = 1800;
 
 // Critères de score : chacun a un poids et une valeur de référence (le maximum
 // réaliste au niveau mondial, pas seulement dans la liste actuelle) afin que
@@ -44,6 +49,70 @@ const SCORE_CRITERIA = [
 
 const MIN_UNLOCK_THRESHOLD = 50;
 const UNLOCK_THRESHOLD_RANGE = 300;
+
+// Types de questions de quiz. Pour ajouter un type, il suffit d'ajouter une
+// entrée ici : { key, buildPrompt, getCorrectAnswer, getDistractorValues,
+// isEmoji }. getDistractorValues reçoit tous les pays pour piocher les
+// mauvaises réponses parmi leurs valeurs pour ce même critère.
+const QUIZ_QUESTION_TYPES = [
+  {
+    key: 'capital',
+    buildPrompt: (country) => `Quelle est la capitale de ${country.name} ?`,
+    getCorrectAnswer: (country) => country.capital,
+    getDistractorValues: (country, allCountries) =>
+      allCountries.filter((c) => c.id !== country.id).map((c) => c.capital),
+    isEmoji: false,
+  },
+  {
+    key: 'flag',
+    buildPrompt: (country) => `Quel drapeau correspond à ${country.name} ?`,
+    getCorrectAnswer: (country) => country.flag,
+    getDistractorValues: (country, allCountries) =>
+      allCountries.filter((c) => c.id !== country.id).map((c) => c.flag),
+    isEmoji: true,
+  },
+  {
+    key: 'language',
+    buildPrompt: (country) => `Quelle est la langue officielle de ${country.name} ?`,
+    getCorrectAnswer: (country) => country.language,
+    getDistractorValues: (country, allCountries) =>
+      allCountries.filter((c) => c.id !== country.id).map((c) => c.language),
+    isEmoji: false,
+  },
+  {
+    key: 'continent',
+    buildPrompt: (country) => `Sur quel continent se trouve ${country.name} ?`,
+    getCorrectAnswer: (country) => country.continent,
+    getDistractorValues: (country, allCountries) =>
+      allCountries.filter((c) => c.id !== country.id).map((c) => c.continent),
+    isEmoji: false,
+  },
+];
+
+function shuffle(array) {
+  const result = [...array];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+function buildQuizQuestion(country, allCountries) {
+  const type = QUIZ_QUESTION_TYPES[Math.floor(Math.random() * QUIZ_QUESTION_TYPES.length)];
+  const correctAnswer = type.getCorrectAnswer(country);
+  const distractorPool = [...new Set(type.getDistractorValues(country, allCountries))].filter(
+    (value) => value !== correctAnswer
+  );
+  const distractors = shuffle(distractorPool).slice(0, 3);
+  return {
+    typeKey: type.key,
+    prompt: type.buildPrompt(country),
+    correctAnswer,
+    options: shuffle([correctAnswer, ...distractors]),
+    isEmoji: type.isEmoji,
+  };
+}
 
 function formatNumber(value) {
   return Math.round(value)
@@ -90,7 +159,84 @@ function getScoreColor(score, threshold) {
   return '#5b6b7c';
 }
 
-function CountryCard({ country, score, threshold, isPlayable, isUnlocked, onDevelop }) {
+function QuizModal({ visible, country, allCountries, onCorrect, onClose }) {
+  const [question, setQuestion] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const cardPulse = useRef(new Animated.Value(1)).current;
+  const closeTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    if (visible && country) {
+      setQuestion(buildQuizQuestion(country, allCountries));
+      setSelected(null);
+      cardPulse.setValue(1);
+    }
+    return () => {
+      if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    };
+  }, [visible, country, allCountries, cardPulse]);
+
+  if (!visible || !question) return null;
+
+  const handleSelect = (option) => {
+    if (selected !== null) return;
+    setSelected(option);
+    const isCorrect = option === question.correctAnswer;
+    if (isCorrect) {
+      Animated.sequence([
+        Animated.timing(cardPulse, { toValue: 1.04, duration: 150, useNativeDriver: true }),
+        Animated.spring(cardPulse, { toValue: 1, useNativeDriver: true, friction: 4 }),
+      ]).start();
+      onCorrect();
+    }
+    closeTimeoutRef.current = setTimeout(onClose, QUIZ_RESULT_AUTO_CLOSE_MS);
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <Animated.View style={[styles.modalCard, { transform: [{ scale: cardPulse }] }]}>
+          <Text style={styles.modalFlag}>{country.flag}</Text>
+          <Text style={styles.modalPrompt}>{question.prompt}</Text>
+          {question.options.map((option) => {
+            const isThisCorrect = option === question.correctAnswer;
+            const showResult = selected !== null;
+            return (
+              <Pressable
+                key={option}
+                onPress={() => handleSelect(option)}
+                disabled={showResult}
+                style={[
+                  styles.modalOption,
+                  showResult && isThisCorrect && styles.modalOptionCorrect,
+                  showResult && selected === option && !isThisCorrect && styles.modalOptionWrong,
+                ]}
+              >
+                <Text style={[styles.modalOptionText, question.isEmoji && styles.modalOptionEmoji]}>
+                  {option}
+                </Text>
+              </Pressable>
+            );
+          })}
+          {selected !== null && (
+            <Text
+              style={[
+                styles.modalResultText,
+                selected === question.correctAnswer ? styles.modalResultCorrect : styles.modalResultWrong,
+              ]}
+            >
+              {selected === question.correctAnswer
+                ? `Bonne réponse ! +${QUIZ_BONUS} pts`
+                : `Dommage ! La bonne réponse était : ${question.correctAnswer}`}
+            </Text>
+          )}
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+function CountryCard({ country, allCountries, score, threshold, isPlayable, isUnlocked, onDevelop, onQuizCorrect }) {
   const scoreAnim = useRef(new Animated.Value(0)).current;
   const [displayedScore, setDisplayedScore] = useState(0);
   const buttonScale = useRef(new Animated.Value(1)).current;
@@ -101,6 +247,9 @@ function CountryCard({ country, score, threshold, isPlayable, isUnlocked, onDeve
   const [showBadge, setShowBadge] = useState(isUnlocked);
   const prevScoreRef = useRef(score);
   const isFirstPlayable = useRef(true);
+  const [quizVisible, setQuizVisible] = useState(false);
+  const [quizOnCooldown, setQuizOnCooldown] = useState(false);
+  const cooldownTimeoutRef = useRef(null);
 
   useEffect(() => {
     Animated.timing(scoreAnim, {
@@ -152,12 +301,22 @@ function CountryCard({ country, score, threshold, isPlayable, isUnlocked, onDeve
     }
   }, [isPlayable, entranceAnim]);
 
+  useEffect(() => () => {
+    if (cooldownTimeoutRef.current) clearTimeout(cooldownTimeoutRef.current);
+  }, []);
+
   const handlePress = () => {
     Animated.sequence([
       Animated.timing(buttonScale, { toValue: 0.9, duration: 80, useNativeDriver: true }),
       Animated.spring(buttonScale, { toValue: 1, useNativeDriver: true, friction: 3, tension: 140 }),
     ]).start();
     onDevelop();
+  };
+
+  const handleQuizClose = () => {
+    setQuizVisible(false);
+    setQuizOnCooldown(true);
+    cooldownTimeoutRef.current = setTimeout(() => setQuizOnCooldown(false), QUIZ_COOLDOWN_MS);
   };
 
   const progressWidth = scoreAnim.interpolate({
@@ -167,6 +326,7 @@ function CountryCard({ country, score, threshold, isPlayable, isUnlocked, onDeve
   });
 
   const contributions = getContributions(country, displayedScore);
+  const isQuizDisabled = !isPlayable || quizOnCooldown;
 
   return (
     <Animated.View
@@ -213,22 +373,42 @@ function CountryCard({ country, score, threshold, isPlayable, isUnlocked, onDeve
       <View style={styles.progressTrack}>
         <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
       </View>
-      <Pressable onPress={handlePress} disabled={!isPlayable}>
-        <Animated.View
-          style={[
-            styles.button,
-            !isPlayable && styles.buttonDisabled,
-            { transform: [{ scale: buttonScale }] },
-          ]}
+      <View style={styles.buttonRow}>
+        <Pressable style={styles.buttonFlex} onPress={handlePress} disabled={!isPlayable}>
+          <Animated.View
+            style={[
+              styles.button,
+              !isPlayable && styles.buttonDisabled,
+              { transform: [{ scale: buttonScale }] },
+            ]}
+          >
+            <View style={styles.buttonContent}>
+              {!isPlayable && <Text style={styles.lockIcon}>🔒</Text>}
+              <Text style={[styles.buttonText, !isPlayable && styles.buttonTextDisabled]}>
+                Développer
+              </Text>
+            </View>
+          </Animated.View>
+        </Pressable>
+        <Pressable
+          style={styles.buttonFlex}
+          onPress={() => setQuizVisible(true)}
+          disabled={isQuizDisabled}
         >
-          <View style={styles.buttonContent}>
-            {!isPlayable && <Text style={styles.lockIcon}>🔒</Text>}
-            <Text style={[styles.buttonText, !isPlayable && styles.buttonTextDisabled]}>
-              Développer
+          <View style={[styles.quizButton, isQuizDisabled && styles.buttonDisabled]}>
+            <Text style={[styles.buttonText, isQuizDisabled && styles.buttonTextDisabled]}>
+              🧠 Quiz
             </Text>
           </View>
-        </Animated.View>
-      </Pressable>
+        </Pressable>
+      </View>
+      <QuizModal
+        visible={quizVisible}
+        country={country}
+        allCountries={allCountries}
+        onCorrect={onQuizCorrect}
+        onClose={handleQuizClose}
+      />
     </Animated.View>
   );
 }
@@ -240,6 +420,14 @@ export default function App() {
     setScores((prev) => {
       const next = [...prev];
       next[index] += SCORE_INCREMENT;
+      return next;
+    });
+  };
+
+  const handleQuizCorrect = (index) => {
+    setScores((prev) => {
+      const next = [...prev];
+      next[index] += QUIZ_BONUS;
       return next;
     });
   };
@@ -261,11 +449,13 @@ export default function App() {
             <CountryCard
               key={country.id}
               country={country}
+              allCountries={COUNTRIES}
               score={scores[index]}
               threshold={getUnlockThreshold(country)}
               isPlayable={isPlayable}
               isUnlocked={index === latestUnlockedIndex}
               onDevelop={() => handleDevelop(index)}
+              onQuizCorrect={() => handleQuizCorrect(index)}
             />
           );
         })}
@@ -355,9 +545,22 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: '#2e5fa3',
   },
-  button: {
+  buttonRow: {
+    flexDirection: 'row',
     marginTop: 12,
+    gap: 8,
+  },
+  buttonFlex: {
+    flex: 1,
+  },
+  button: {
     backgroundColor: '#2e5fa3',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  quizButton: {
+    backgroundColor: '#7c5cbf',
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center',
@@ -380,5 +583,69 @@ const styles = StyleSheet.create({
   },
   buttonTextDisabled: {
     color: '#7c8794',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(28, 39, 51, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 20,
+  },
+  modalFlag: {
+    fontSize: 40,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalPrompt: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1c2733',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  modalOption: {
+    borderWidth: 1.5,
+    borderColor: '#d7dee6',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    alignItems: 'center',
+  },
+  modalOptionCorrect: {
+    borderColor: '#2e9e5b',
+    backgroundColor: '#e5f6ec',
+  },
+  modalOptionWrong: {
+    borderColor: '#d94f3d',
+    backgroundColor: '#fbe9e6',
+  },
+  modalOptionText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#1c2733',
+    textAlign: 'center',
+  },
+  modalOptionEmoji: {
+    fontSize: 32,
+  },
+  modalResultText: {
+    marginTop: 4,
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  modalResultCorrect: {
+    color: '#2e9e5b',
+  },
+  modalResultWrong: {
+    color: '#d94f3d',
   },
 });
