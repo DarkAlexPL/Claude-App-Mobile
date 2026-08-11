@@ -3,25 +3,53 @@ import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { Animated, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+// Triés par superficie croissante : plus le pays est grand, plus loin il apparaît
+// dans la liste et plus le seuil de déblocage du pays précédent est élevé
+// (voir getUnlockThreshold). Pour ajouter un pays, il suffit d'insérer une entrée
+// { id, name, area, flag } à la bonne position dans ce tableau.
 const COUNTRIES = [
-  { id: '1', name: 'France', area: '551 695 km²', flag: '🇫🇷' },
-  { id: '2', name: 'Brésil', area: '8 515 767 km²', flag: '🇧🇷' },
-  { id: '3', name: 'Japon', area: '377 975 km²', flag: '🇯🇵' },
-  { id: '4', name: 'Australie', area: '7 692 024 km²', flag: '🇦🇺' },
-  { id: '5', name: 'Égypte', area: '1 002 450 km²', flag: '🇪🇬' },
+  { id: 'va', name: 'Vatican', area: '0,44 km²', flag: '🇻🇦' },
+  { id: 'mc', name: 'Monaco', area: '2,1 km²', flag: '🇲🇨' },
+  { id: 'mt', name: 'Malte', area: '316 km²', flag: '🇲🇹' },
+  { id: 'ad', name: 'Andorre', area: '468 km²', flag: '🇦🇩' },
+  { id: 'sg', name: 'Singapour', area: '728 km²', flag: '🇸🇬' },
+  { id: 'lu', name: 'Luxembourg', area: '2 586 km²', flag: '🇱🇺' },
+  { id: 'pt', name: 'Portugal', area: '92 212 km²', flag: '🇵🇹' },
+  { id: 'gr', name: 'Grèce', area: '131 957 km²', flag: '🇬🇷' },
+  { id: 'jp', name: 'Japon', area: '377 975 km²', flag: '🇯🇵' },
+  { id: 'fr', name: 'France', area: '551 695 km²', flag: '🇫🇷' },
+  { id: 'ke', name: 'Kenya', area: '580 367 km²', flag: '🇰🇪' },
+  { id: 'ua', name: 'Ukraine', area: '603 550 km²', flag: '🇺🇦' },
+  { id: 'eg', name: 'Égypte', area: '1 002 450 km²', flag: '🇪🇬' },
+  { id: 'mx', name: 'Mexique', area: '1 964 375 km²', flag: '🇲🇽' },
+  { id: 'ar', name: 'Argentine', area: '2 780 400 km²', flag: '🇦🇷' },
+  { id: 'in', name: 'Inde', area: '3 287 263 km²', flag: '🇮🇳' },
+  { id: 'au', name: 'Australie', area: '7 692 024 km²', flag: '🇦🇺' },
+  { id: 'br', name: 'Brésil', area: '8 515 767 km²', flag: '🇧🇷' },
+  { id: 'cn', name: 'Chine', area: '9 596 961 km²', flag: '🇨🇳' },
+  { id: 'ca', name: 'Canada', area: '9 984 670 km²', flag: '🇨🇦' },
 ];
 
 const SCORE_INCREMENT = 10;
-const UNLOCK_THRESHOLD = 100;
+const BASE_UNLOCK_THRESHOLD = 50;
+const UNLOCK_THRESHOLD_STEP = 10;
 
-function getScoreColor(score) {
-  const ratio = Math.min(score, UNLOCK_THRESHOLD) / UNLOCK_THRESHOLD;
+// Le seuil nécessaire pour débloquer le pays suivant augmente légèrement à
+// chaque palier de la liste, pour une difficulté progressive plutôt qu'un
+// seuil fixe. Formule (et non valeurs codées en dur) afin que la difficulté
+// s'étende automatiquement si la liste grandit vers l'ensemble des ~195 pays.
+function getUnlockThreshold(index) {
+  return BASE_UNLOCK_THRESHOLD + index * UNLOCK_THRESHOLD_STEP;
+}
+
+function getScoreColor(score, threshold) {
+  const ratio = Math.min(score, threshold) / threshold;
   if (ratio >= 0.7) return '#2e9e5b';
   if (ratio >= 0.3) return '#d98a1f';
   return '#5b6b7c';
 }
 
-function CountryCard({ country, score, isPlayable, isUnlocked, onDevelop }) {
+function CountryCard({ country, score, threshold, isPlayable, isUnlocked, onDevelop }) {
   const scoreAnim = useRef(new Animated.Value(0)).current;
   const [displayedScore, setDisplayedScore] = useState(0);
   const buttonScale = useRef(new Animated.Value(1)).current;
@@ -48,7 +76,7 @@ function CountryCard({ country, score, isPlayable, isUnlocked, onDevelop }) {
 
   useEffect(() => {
     const prev = prevScoreRef.current;
-    if (prev < UNLOCK_THRESHOLD && score >= UNLOCK_THRESHOLD) {
+    if (prev < threshold && score >= threshold) {
       Animated.sequence([
         Animated.timing(cardScale, { toValue: 1.05, duration: 150, useNativeDriver: true }),
         Animated.spring(cardScale, { toValue: 1, useNativeDriver: true, friction: 4 }),
@@ -60,7 +88,7 @@ function CountryCard({ country, score, isPlayable, isUnlocked, onDevelop }) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
     prevScoreRef.current = score;
-  }, [score, cardScale, celebrateAnim]);
+  }, [score, threshold, cardScale, celebrateAnim]);
 
   useEffect(() => {
     if (isUnlocked) {
@@ -92,7 +120,7 @@ function CountryCard({ country, score, isPlayable, isUnlocked, onDevelop }) {
   };
 
   const progressWidth = scoreAnim.interpolate({
-    inputRange: [0, UNLOCK_THRESHOLD],
+    inputRange: [0, threshold],
     outputRange: ['0%', '100%'],
     extrapolate: 'clamp',
   });
@@ -131,8 +159,8 @@ function CountryCard({ country, score, isPlayable, isUnlocked, onDevelop }) {
         )}
       </View>
       <Text style={styles.area}>Superficie : {country.area}</Text>
-      <Text style={[styles.score, { color: getScoreColor(displayedScore) }]}>
-        Score : {displayedScore}
+      <Text style={[styles.score, { color: getScoreColor(displayedScore, threshold) }]}>
+        Score : {displayedScore} / {threshold}
       </Text>
       <View style={styles.progressTrack}>
         <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
@@ -169,7 +197,8 @@ export default function App() {
   };
 
   const latestUnlockedIndex = COUNTRIES.reduce(
-    (latest, _country, index) => (index > 0 && scores[index - 1] >= UNLOCK_THRESHOLD ? index : latest),
+    (latest, _country, index) =>
+      index > 0 && scores[index - 1] >= getUnlockThreshold(index - 1) ? index : latest,
     null
   );
 
@@ -179,12 +208,13 @@ export default function App() {
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Jeu de Géographie</Text>
         {COUNTRIES.map((country, index) => {
-          const isPlayable = index === 0 || scores[index - 1] >= UNLOCK_THRESHOLD;
+          const isPlayable = index === 0 || scores[index - 1] >= getUnlockThreshold(index - 1);
           return (
             <CountryCard
               key={country.id}
               country={country}
               score={scores[index]}
+              threshold={getUnlockThreshold(index)}
               isPlayable={isPlayable}
               isUnlocked={index === latestUnlockedIndex}
               onDevelop={() => handleDevelop(index)}
