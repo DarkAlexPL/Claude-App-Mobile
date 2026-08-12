@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { Animated, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 // Triés par superficie croissante. areaKm2/population sont les valeurs brutes
@@ -159,60 +160,103 @@ function getScoreColor(score, threshold) {
   return '#5b6b7c';
 }
 
-// Positions/tailles fixes d'un « blob » par pays (dans l'ordre de COUNTRIES),
-// dispersées sur l'écran pour évoquer des continents sans dépendre d'une
-// librairie SVG (évite le souci récurrent de résolution de dépendances dans
-// Snack) : une illustration stylisée plutôt qu'une carte cartographiquement
-// exacte, mais légère et fiable sur toutes les plateformes.
-const MAP_BLOBS = [
-  { top: '4%', left: '8%', size: 70 },
-  { top: '10%', left: '62%', size: 55 },
-  { top: '2%', left: '40%', size: 45 },
-  { top: '15%', left: '20%', size: 50 },
-  { top: '20%', left: '78%', size: 60 },
-  { top: '8%', left: '88%', size: 40 },
-  { top: '27%', left: '5%', size: 65 },
-  { top: '32%', left: '46%', size: 50 },
-  { top: '18%', left: '56%', size: 75 },
-  { top: '37%', left: '15%', size: 55 },
-  { top: '42%', left: '72%', size: 60 },
-  { top: '47%', left: '35%', size: 45 },
-  { top: '52%', left: '8%', size: 70 },
-  { top: '57%', left: '62%', size: 65 },
-  { top: '62%', left: '25%', size: 55 },
-  { top: '67%', left: '82%', size: 50 },
-  { top: '72%', left: '10%', size: 75 },
-  { top: '77%', left: '50%', size: 70 },
-  { top: '82%', left: '30%', size: 60 },
-  { top: '87%', left: '70%', size: 65 },
+// Carte du monde en projection équirectangulaire simplifiée (viewBox
+// 1000x500 : x = longitude, y = latitude). Contours de continents
+// approximatifs mais reconnaissables, tracés à la main (pas de fichier
+// externe téléchargé). L'Antarctique est omise pour rester discrète.
+function project(lon, lat) {
+  return [((lon + 180) / 360) * 1000, ((90 - lat) / 180) * 500];
+}
+
+function buildPath(points) {
+  const [start, ...rest] = points.map(([lon, lat]) => project(lon, lat));
+  return `M${start[0].toFixed(1)},${start[1].toFixed(1)} L${rest
+    .map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`)
+    .join(' L')} Z`;
+}
+
+const CONTINENTS = [
+  [
+    [-165, 68], [-140, 70], [-95, 78], [-75, 68], [-60, 50], [-53, 47], [-65, 44],
+    [-75, 35], [-81, 25], [-97, 18], [-105, 21], [-115, 29], [-124, 40], [-130, 55],
+    [-152, 60], [-165, 68],
+  ], // Amérique du Nord
+  [
+    [-77, 8], [-60, 10], [-50, 0], [-35, -6], [-40, -18], [-48, -25], [-58, -35],
+    [-68, -55], [-73, -45], [-71, -30], [-70, -18], [-78, -5], [-77, 8],
+  ], // Amérique du Sud
+  [
+    [-9, 43], [-9, 52], [5, 58], [10, 63], [25, 70], [40, 66], [40, 55], [30, 45],
+    [19, 40], [13, 38], [-5, 36], [-9, 43],
+  ], // Europe
+  [
+    [-17, 21], [-6, 35], [10, 37], [32, 31], [43, 12], [51, 12], [45, 2], [40, -15],
+    [35, -25], [20, -35], [12, -17], [10, 4], [-5, 5], [-17, 21],
+  ], // Afrique
+  [
+    [35, 45], [48, 41], [45, 25], [60, 13], [75, 8], [93, 16], [101, 3], [109, 10],
+    [120, 23], [122, 31], [131, 44], [142, 46], [160, 60], [170, 68], [140, 73],
+    [100, 76], [70, 72], [60, 50], [50, 42], [35, 45],
+  ], // Asie
+  [
+    [113, -22], [122, -18], [129, -12], [137, -12], [142, -11], [145, -17],
+    [153, -28], [150, -38], [140, -38], [131, -32], [115, -34], [113, -22],
+  ], // Océanie
 ];
 
-// Fond de carte du monde stylisé : un « blob » par pays, qui se teinte en
-// bleu (couleur principale de l'app) une fois le pays débloqué, pour
-// visualiser la conquête progressive. Rendu en pointerEvents="none" pour ne
-// jamais intercepter les appuis, et derrière la liste (les cartes opaques
-// des pays le recouvrent presque entièrement, il ne reste visible que dans
-// les marges et l'en-tête).
+const CONTINENT_PATHS = CONTINENTS.map(buildPath);
+
+// Coordonnées approximatives (longitude, latitude) de chaque pays, dans
+// l'ordre de COUNTRIES, pour placer un point sur la carte.
+const COUNTRY_COORDS = [
+  [12.45, 41.9], // Vatican
+  [7.42, 43.73], // Monaco
+  [14.5, 35.9], // Malte
+  [1.52, 42.5], // Andorre
+  [103.8, 1.35], // Singapour
+  [6.13, 49.6], // Luxembourg
+  [-8.0, 39.5], // Portugal
+  [22.0, 39.0], // Grèce
+  [138, 36], // Japon
+  [2.2, 46.6], // France
+  [37.5, 0.3], // Kenya
+  [31, 49], // Ukraine
+  [29, 26], // Égypte
+  [-102, 23], // Mexique
+  [-64, -34], // Argentine
+  [78, 22], // Inde
+  [134, -25], // Australie
+  [-51, -10], // Brésil
+  [104, 35], // Chine
+  [-96, 60], // Canada
+];
+
+// Fond de carte du monde : les continents restent dans une teinte neutre et
+// discrète, tandis qu'un point s'allume en bleu (couleur principale de
+// l'app) sur chaque pays débloqué, pour visualiser la conquête progressive.
+// pointerEvents="none" pour ne jamais intercepter les appuis ; les cartes
+// opaques des pays recouvrent la majorité du fond, qui ne reste visible que
+// dans les marges et l'en-tête.
 function WorldMapBackground({ unlockedFlags }) {
   return (
     <View style={styles.mapBackground} pointerEvents="none">
-      {MAP_BLOBS.map((blob, index) => (
-        <View
-          key={index}
-          style={[
-            styles.mapBlob,
-            {
-              top: blob.top,
-              left: blob.left,
-              width: blob.size,
-              height: blob.size,
-              backgroundColor: unlockedFlags[index]
-                ? 'rgba(46, 95, 163, 0.18)'
-                : 'rgba(28, 39, 51, 0.05)',
-            },
-          ]}
-        />
-      ))}
+      <Svg width="100%" height="100%" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid slice">
+        {CONTINENT_PATHS.map((d, index) => (
+          <Path key={index} d={d} fill="#dde4ec" />
+        ))}
+        {COUNTRY_COORDS.map(([lon, lat], index) => {
+          const [x, y] = project(lon, lat);
+          return (
+            <Circle
+              key={index}
+              cx={x}
+              cy={y}
+              r={unlockedFlags[index] ? 9 : 5}
+              fill={unlockedFlags[index] ? 'rgba(46, 95, 163, 0.65)' : 'rgba(28, 39, 51, 0.18)'}
+            />
+          );
+        })}
+      </Svg>
     </View>
   );
 }
@@ -606,10 +650,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#f2f5f9',
     overflow: 'hidden',
-  },
-  mapBlob: {
-    position: 'absolute',
-    borderRadius: 999,
   },
   container: {
     padding: 20,
