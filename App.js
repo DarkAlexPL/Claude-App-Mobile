@@ -159,6 +159,64 @@ function getScoreColor(score, threshold) {
   return '#5b6b7c';
 }
 
+// Positions/tailles fixes d'un « blob » par pays (dans l'ordre de COUNTRIES),
+// dispersées sur l'écran pour évoquer des continents sans dépendre d'une
+// librairie SVG (évite le souci récurrent de résolution de dépendances dans
+// Snack) : une illustration stylisée plutôt qu'une carte cartographiquement
+// exacte, mais légère et fiable sur toutes les plateformes.
+const MAP_BLOBS = [
+  { top: '4%', left: '8%', size: 70 },
+  { top: '10%', left: '62%', size: 55 },
+  { top: '2%', left: '40%', size: 45 },
+  { top: '15%', left: '20%', size: 50 },
+  { top: '20%', left: '78%', size: 60 },
+  { top: '8%', left: '88%', size: 40 },
+  { top: '27%', left: '5%', size: 65 },
+  { top: '32%', left: '46%', size: 50 },
+  { top: '18%', left: '56%', size: 75 },
+  { top: '37%', left: '15%', size: 55 },
+  { top: '42%', left: '72%', size: 60 },
+  { top: '47%', left: '35%', size: 45 },
+  { top: '52%', left: '8%', size: 70 },
+  { top: '57%', left: '62%', size: 65 },
+  { top: '62%', left: '25%', size: 55 },
+  { top: '67%', left: '82%', size: 50 },
+  { top: '72%', left: '10%', size: 75 },
+  { top: '77%', left: '50%', size: 70 },
+  { top: '82%', left: '30%', size: 60 },
+  { top: '87%', left: '70%', size: 65 },
+];
+
+// Fond de carte du monde stylisé : un « blob » par pays, qui se teinte en
+// bleu (couleur principale de l'app) une fois le pays débloqué, pour
+// visualiser la conquête progressive. Rendu en pointerEvents="none" pour ne
+// jamais intercepter les appuis, et derrière la liste (les cartes opaques
+// des pays le recouvrent presque entièrement, il ne reste visible que dans
+// les marges et l'en-tête).
+function WorldMapBackground({ unlockedFlags }) {
+  return (
+    <View style={styles.mapBackground} pointerEvents="none">
+      {MAP_BLOBS.map((blob, index) => (
+        <View
+          key={index}
+          style={[
+            styles.mapBlob,
+            {
+              top: blob.top,
+              left: blob.left,
+              width: blob.size,
+              height: blob.size,
+              backgroundColor: unlockedFlags[index]
+                ? 'rgba(46, 95, 163, 0.18)'
+                : 'rgba(28, 39, 51, 0.05)',
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
 function QuizModal({ visible, country, allCountries, onCorrect, onClose }) {
   const [question, setQuestion] = useState(null);
   const [selected, setSelected] = useState(null);
@@ -495,6 +553,10 @@ export default function App() {
     });
   };
 
+  const playableFlags = COUNTRIES.map(
+    (_country, index) => index === 0 || scores[index - 1] >= getUnlockThreshold(COUNTRIES[index - 1])
+  );
+
   const latestUnlockedIndex = COUNTRIES.reduce(
     (latest, _country, index) =>
       index > 0 && scores[index - 1] >= getUnlockThreshold(COUNTRIES[index - 1]) ? index : latest,
@@ -504,10 +566,11 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="auto" />
+      <WorldMapBackground unlockedFlags={playableFlags} />
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.headerRow}>
           <View style={styles.headerSpacer} />
-          <Text style={styles.title}>Jeu de Géographie</Text>
+          <Text style={styles.title}>Conquer The World</Text>
           <Pressable
             onPress={() => setSoundEnabled((v) => !v)}
             style={styles.soundButton}
@@ -516,22 +579,19 @@ export default function App() {
             <Text style={styles.soundButtonText}>{soundEnabled ? '🔊' : '🔇'}</Text>
           </Pressable>
         </View>
-        {COUNTRIES.map((country, index) => {
-          const isPlayable = index === 0 || scores[index - 1] >= getUnlockThreshold(COUNTRIES[index - 1]);
-          return (
-            <CountryCard
-              key={country.id}
-              country={country}
-              allCountries={COUNTRIES}
-              score={scores[index]}
-              threshold={getUnlockThreshold(country)}
-              isPlayable={isPlayable}
-              isUnlocked={index === latestUnlockedIndex}
-              onDevelop={() => handleDevelop(index)}
-              onQuizCorrect={() => handleQuizCorrect(index)}
-            />
-          );
-        })}
+        {COUNTRIES.map((country, index) => (
+          <CountryCard
+            key={country.id}
+            country={country}
+            allCountries={COUNTRIES}
+            score={scores[index]}
+            threshold={getUnlockThreshold(country)}
+            isPlayable={playableFlags[index]}
+            isUnlocked={index === latestUnlockedIndex}
+            onDevelop={() => handleDevelop(index)}
+            onQuizCorrect={() => handleQuizCorrect(index)}
+          />
+        ))}
       </ScrollView>
     </SafeAreaView>
   );
@@ -541,6 +601,15 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#f2f5f9',
+  },
+  mapBackground: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#f2f5f9',
+    overflow: 'hidden',
+  },
+  mapBlob: {
+    position: 'absolute',
+    borderRadius: 999,
   },
   container: {
     padding: 20,
