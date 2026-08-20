@@ -266,12 +266,14 @@ function getDefaultGameState() {
     scores: { [STARTING_COUNTRY_ID]: 0 },
     unlockedIds: [STARTING_COUNTRY_ID],
     pendingChoice: null,
+    pendingEvent: null,
+    eventChoices: {},
   };
 }
 
 function isValidGameState(parsed) {
   if (!parsed || typeof parsed !== 'object') return false;
-  const { scores, unlockedIds, pendingChoice } = parsed;
+  const { scores, unlockedIds, pendingChoice, pendingEvent, eventChoices } = parsed;
   if (!scores || typeof scores !== 'object') return false;
   if (!Array.isArray(unlockedIds) || unlockedIds.length === 0) return false;
   if (!unlockedIds.every((id) => COUNTRY_IDS.has(id))) return false;
@@ -285,6 +287,28 @@ function isValidGameState(parsed) {
     if (!pendingChoice.optionIds.every((id) => COUNTRY_IDS.has(id) && !unlockedIds.includes(id))) {
       return false;
     }
+  }
+  // eventKey n'est pas validé contre EVENT_TYPES ici : ce module est défini
+  // plus haut dans le fichier, avant EVENT_TYPES. RandomEventModal gère déjà
+  // un eventKey inconnu (ne rend rien), donc une simple vérification de type
+  // suffit à rester robuste sans dépendance d'ordre entre déclarations.
+  if (pendingEvent !== null) {
+    if (
+      !pendingEvent ||
+      !COUNTRY_IDS.has(pendingEvent.countryId) ||
+      typeof pendingEvent.eventKey !== 'string'
+    ) {
+      return false;
+    }
+  }
+  if (eventChoices === undefined) return false;
+  if (typeof eventChoices !== 'object' || eventChoices === null) return false;
+  if (
+    !Object.entries(eventChoices).every(
+      ([id, value]) => COUNTRY_IDS.has(id) && (value === 'prudent' || value === 'audacieux')
+    )
+  ) {
+    return false;
   }
   return true;
 }
@@ -490,6 +514,123 @@ function pickChoiceCandidates(sourceCountry, lockedCountries) {
     .sort((a, b) => Math.abs(getSizeIndex(a) - sourceSize) - Math.abs(getSizeIndex(b) - sourceSize))
     .slice(0, Math.min(CHOICE_CANDIDATE_POOL_SIZE, lockedCountries.length));
   return shuffle(closest).slice(0, Math.min(CHOICE_OPTIONS_COUNT, closest.length));
+}
+
+// Récit de déblocage : un texte à deux phrases assemblé à partir de pools
+// (une ouverture piochée selon la taille du pays + une clôture piochée au
+// hasard) plutôt qu'un texte fixe par pays — impossible à écrire à la main
+// pour 194 pays, mais suffisant pour éviter la répétition perçue d'une
+// partie à l'autre. Les seuils de taille reprennent l'échelle de sizeIndex
+// déjà utilisée pour le score/les seuils de déblocage.
+const NARRATIVE_OPENINGS_SMALL = [
+  (c) => `${c.name} rejoint ton empire par une alliance scellée à ${c.capital}.`,
+  (c) => `Séduit par ta réputation, ${c.name} choisit de te rallier sans combattre.`,
+  (c) => `Un accord discret conclu à ${c.capital} suffit : ${c.name} devient tien.`,
+];
+const NARRATIVE_OPENINGS_MEDIUM = [
+  (c) => `Après des négociations tendues à ${c.capital}, ${c.name} accepte de rejoindre ton empire.`,
+  (c) => `${c.name} plie sous la pression diplomatique et intègre tes rangs.`,
+  (c) => `Un traité signé à ${c.capital} scelle l'annexion de ${c.name}.`,
+];
+const NARRATIVE_OPENINGS_LARGE = [
+  (c) => `${c.name} tombe sous ta bannière au terme d'une vaste campagne.`,
+  (c) => `La chute de ${c.capital} marque la conquête de ${c.name}.`,
+  (c) => `${c.name}, l'une des grandes puissances du monde, se soumet enfin à ton empire.`,
+];
+const NARRATIVE_CLOSINGS = [
+  (c) => `Ses ${formatNumber(c.population)} habitants attendent de voir ce que tu feras d'eux.`,
+  (c) => `On y parle désormais ${c.language} sous tes couleurs.`,
+  (c) => `Le monde entier observe ta progression depuis ${c.capital}.`,
+  (c) => `Une nouvelle page de conquête s'écrit pour ${c.name}.`,
+];
+
+function getUnlockNarrative(country) {
+  const sizeIndex = getSizeIndex(country);
+  const openings =
+    sizeIndex < 0.05 ? NARRATIVE_OPENINGS_SMALL : sizeIndex < 0.15 ? NARRATIVE_OPENINGS_MEDIUM : NARRATIVE_OPENINGS_LARGE;
+  const opening = openings[Math.floor(Math.random() * openings.length)](country);
+  const closing = NARRATIVE_CLOSINGS[Math.floor(Math.random() * NARRATIVE_CLOSINGS.length)](country);
+  return `${opening} ${closing}`;
+}
+
+// Événements aléatoires pendant le développement : ~1 fois sur 8 à 10 clics
+// sur « Développer » (probabilité fixe par clic plutôt qu'un compteur exact,
+// pour garder l'effet de surprise — voir maybeTriggerRandomEvent dans App).
+// Chaque événement propose un choix prudent (gain modéré et sûr) et un choix
+// audacieux (gain plus élevé, avec un risque de perte réel). Seul eventKey
+// (pas l'objet complet) est stocké dans pendingEvent, pour rester
+// sérialisable comme pendingChoice.
+const EVENT_TRIGGER_CHANCE = 1 / 9;
+const EVENT_SAFE_GAIN = 15;
+const EVENT_RISKY_SUCCESS_GAIN = 35;
+const EVENT_RISKY_FAILURE_LOSS = 15;
+const EVENT_RISKY_SUCCESS_CHANCE = 0.55;
+
+const EVENT_TYPES = [
+  {
+    key: 'crise_economique',
+    title: '📉 Crise économique',
+    buildSituation: (c) =>
+      `Une récession frappe ${c.name}. Les caisses de l'État se vident et la population s'inquiète pour son avenir.`,
+    safeLabel: "Plan d'austérité",
+    riskyLabel: 'Relance à crédit',
+    safeText: (gain) => `La rigueur budgétaire stabilise la situation. +${gain} pts`,
+    successText: (gain) => `Le pari de la relance paie : l'économie redémarre plus forte. +${gain} pts`,
+    failureText: (loss) => `La dette explose sans relancer la croissance. -${loss} pts`,
+  },
+  {
+    key: 'tension_militaire',
+    title: '⚔️ Tension militaire',
+    buildSituation: (c) => `Des troupes s'amassent à la frontière de ${c.name}. Le climat est électrique.`,
+    safeLabel: 'Renforcer les défenses',
+    riskyLabel: 'Frappe préventive',
+    safeText: (gain) => `La dissuasion fonctionne, la tension retombe. +${gain} pts`,
+    successText: (gain) => `L'audace paie : l'adversaire recule sans combattre. +${gain} pts`,
+    failureText: (loss) => `L'opération tourne mal et coûte cher. -${loss} pts`,
+  },
+  {
+    key: 'opportunite_diplomatique',
+    title: '🤝 Opportunité diplomatique',
+    buildSituation: (c) => `Un partenaire étranger propose un accord commercial inédit avec ${c.name}.`,
+    safeLabel: 'Accord mesuré',
+    riskyLabel: "Tout miser sur l'accord",
+    safeText: (gain) => `Un accord raisonnable est signé sans accroc. +${gain} pts`,
+    successText: (gain) => `L'accord dépasse toutes les attentes. +${gain} pts`,
+    failureText: (loss) => `Le partenaire se rétracte, l'affaire tourne court. -${loss} pts`,
+  },
+  {
+    key: 'catastrophe_naturelle',
+    title: '🌪️ Catastrophe naturelle',
+    buildSituation: (c) => `Une catastrophe naturelle frappe ${c.name}. La population attend une réponse rapide.`,
+    safeLabel: 'Aide humanitaire immédiate',
+    riskyLabel: 'Reconstruction ambitieuse',
+    safeText: (gain) => `L'aide immédiate limite la casse. +${gain} pts`,
+    successText: (gain) => `La reconstruction fait mieux que réparer : le pays en ressort plus fort. +${gain} pts`,
+    failureText: (loss) => `Le chantier dérape et coûte cher aux finances publiques. -${loss} pts`,
+  },
+];
+
+// Choix prudent : gain fixe. Choix audacieux : tirage entre un gros gain et
+// une perte, pour un vrai risque (voir EVENT_RISKY_SUCCESS_CHANCE).
+function resolveEventOutcome(isRisky) {
+  if (!isRisky) return { success: true, delta: EVENT_SAFE_GAIN };
+  const success = Math.random() < EVENT_RISKY_SUCCESS_CHANCE;
+  return { success, delta: success ? EVENT_RISKY_SUCCESS_GAIN : -EVENT_RISKY_FAILURE_LOSS };
+}
+
+// Titre de dirigeant affiché sur le dashboard, qui évolue avec le nombre de
+// pays débloqués — pure mise en scène, n'affecte rien d'autre.
+const LEADER_TITLE_TIERS = [
+  { max: 2, title: 'Chef de clan' },
+  { max: 5, title: 'Meneur régional' },
+  { max: 10, title: 'Stratège continental' },
+  { max: 25, title: 'Souverain influent' },
+  { max: 60, title: 'Maître géopolitique' },
+  { max: Infinity, title: 'Conquérant mondial' },
+];
+
+function getLeaderTitle(unlockedCount) {
+  return LEADER_TITLE_TIERS.find((tier) => unlockedCount <= tier.max).title;
 }
 
 function getScoreColor(score, threshold) {
@@ -927,12 +1068,24 @@ function CountryDetailModal({ visible, country, score, threshold, onClose }) {
 }
 
 // Modale de choix affichée quand un pays atteint son seuil : le joueur
-// choisit lequel des 3 pays proposés rejoint sa liste de pays débloqués. Pas
-// de bouton de fermeture ni de onRequestClose actif : le choix est
-// obligatoire, sinon la progression resterait bloquée sans pays jouable de
-// plus.
+// choisit lequel des 3 pays proposés rejoint sa liste de pays débloqués, puis
+// voit un court récit de déblocage (voir getUnlockNarrative) avant que le
+// pays ne soit effectivement ajouté (onChoose n'est appelé qu'au tap sur
+// « Continuer »). Pas de bouton de fermeture ni de onRequestClose actif à
+// aucune étape : la progression resterait bloquée sans pays jouable si le
+// joueur pouvait fermer sans choisir.
 function CountryChoiceModal({ visible, sourceCountry, options, onChoose }) {
+  const [revealed, setRevealed] = useState(null);
+
+  useEffect(() => {
+    if (visible) setRevealed(null);
+  }, [visible]);
+
   if (!visible || !sourceCountry || options.length === 0) return null;
+
+  const handlePick = (country) => {
+    setRevealed({ country, narrative: getUnlockNarrative(country) });
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={() => {}}>
@@ -940,17 +1093,115 @@ function CountryChoiceModal({ visible, sourceCountry, options, onChoose }) {
         <WorldMapBackground />
         <View style={styles.modalTint} />
         <View style={styles.choiceCard}>
-          <Text style={styles.choiceTitle}>{sourceCountry.name} est développé !</Text>
-          <Text style={styles.choiceSubtitle}>Choisis le prochain pays à conquérir :</Text>
-          {options.map((country) => (
-            <Pressable key={country.id} onPress={() => onChoose(country.id)} style={styles.choiceOption}>
-              <Text style={styles.choiceFlag}>{country.flag}</Text>
-              <View style={styles.choiceInfo}>
-                <Text style={styles.choiceName}>{country.name}</Text>
-                <Text style={styles.choiceArea}>{country.area}</Text>
-              </View>
-            </Pressable>
-          ))}
+          {!revealed ? (
+            <>
+              <Text style={styles.choiceTitle}>{sourceCountry.name} est développé !</Text>
+              <Text style={styles.choiceSubtitle}>Choisis le prochain pays à conquérir :</Text>
+              {options.map((country) => (
+                <Pressable key={country.id} onPress={() => handlePick(country)} style={styles.choiceOption}>
+                  <Text style={styles.choiceFlag}>{country.flag}</Text>
+                  <View style={styles.choiceInfo}>
+                    <Text style={styles.choiceName}>{country.name}</Text>
+                    <Text style={styles.choiceArea}>{country.area}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </>
+          ) : (
+            <>
+              <Text style={styles.modalFlag}>{revealed.country.flag}</Text>
+              <Text style={styles.choiceTitle}>{revealed.country.name} rejoint ton empire</Text>
+              <Text style={styles.choiceNarrative}>{revealed.narrative}</Text>
+              <Pressable onPress={() => onChoose(revealed.country.id)} style={styles.continueButton}>
+                <Text style={styles.continueButtonText}>Continuer</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// Modale d'événement aléatoire déclenchée occasionnellement par un clic sur
+// « Développer » (voir maybeTriggerRandomEvent dans App). Le choix prudent
+// applique un gain fixe et sûr ; le choix audacieux tire un gain plus élevé
+// ou une perte (voir resolveEventOutcome). previousChoice (mémoire simple
+// par pays, voir eventChoices) ajoute une phrase de contexte si ce pays a
+// déjà connu un événement — pure saveur narrative, n'influence pas les
+// chances réelles.
+function RandomEventModal({ visible, country, eventType, previousChoice, onResolve, onClose }) {
+  const [outcome, setOutcome] = useState(null);
+
+  useEffect(() => {
+    if (visible) setOutcome(null);
+  }, [visible, country]);
+
+  if (!visible || !country || !eventType) return null;
+
+  const handleChoice = (isRisky) => {
+    if (outcome) return;
+    const result = resolveEventOutcome(isRisky);
+    const choiceKind = isRisky ? 'audacieux' : 'prudent';
+    setOutcome({ choiceKind, ...result });
+    onResolve(country.id, choiceKind, result.delta);
+  };
+
+  const callbackLine =
+    previousChoice === 'prudent'
+      ? `Fidèle à sa prudence passée, ${country.name} hésite de nouveau. `
+      : previousChoice === 'audacieux'
+        ? `Marqué par ses choix audacieux, ${country.name} n'a plus froid aux yeux. `
+        : '';
+
+  const resultText = outcome
+    ? outcome.choiceKind === 'prudent'
+      ? eventType.safeText(outcome.delta)
+      : outcome.success
+        ? eventType.successText(outcome.delta)
+        : eventType.failureText(Math.abs(outcome.delta))
+    : null;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={() => {}}>
+      <View style={styles.modalBackdrop}>
+        <WorldMapBackground />
+        <View style={styles.modalTint} />
+        <View style={styles.eventCard}>
+          <Text style={styles.eventTitle}>{eventType.title}</Text>
+          <Text style={styles.eventCountry}>
+            {country.flag} {country.name}
+          </Text>
+          <Text style={styles.eventSituation}>
+            {callbackLine}
+            {eventType.buildSituation(country)}
+          </Text>
+          {!outcome ? (
+            <>
+              <Pressable onPress={() => handleChoice(false)} style={styles.eventOptionSafe}>
+                <Text style={styles.eventOptionLabel}>{eventType.safeLabel}</Text>
+                <Text style={styles.eventOptionHint}>Gain modéré, sans risque</Text>
+              </Pressable>
+              <Pressable onPress={() => handleChoice(true)} style={styles.eventOptionRisky}>
+                <Text style={styles.eventOptionLabel}>{eventType.riskyLabel}</Text>
+                <Text style={styles.eventOptionHint}>Gain plus élevé, mais risqué</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Text
+                style={[
+                  styles.eventResultText,
+                  outcome.delta >= 0 ? styles.eventResultSuccess : styles.eventResultFailure,
+                ]}
+              >
+                {resultText}
+              </Text>
+              <Pressable onPress={onClose} style={styles.continueButton}>
+                <Text style={styles.continueButtonText}>Continuer</Text>
+              </Pressable>
+            </>
+          )}
         </View>
       </View>
     </Modal>
@@ -1134,13 +1385,17 @@ function CountryCard({ country, allCountries, score, threshold, isNew, isUnlocke
 }
 
 // Barre fixe en haut de l'écran principal (hors ScrollView, donc toujours
-// visible même quand la liste défile) : score total, progression globale
-// (pays débloqués / total), et raccourcis son/réinitialisation.
-function DashboardBar({ totalScore, unlockedCount, totalCount, soundEnabled, onToggleSound, onReset }) {
+// visible même quand la liste défile) : titre de dirigeant (voir
+// getLeaderTitle), score total, progression globale (pays débloqués /
+// total), et raccourcis son/réinitialisation.
+function DashboardBar({ totalScore, unlockedCount, totalCount, leaderTitle, soundEnabled, onToggleSound, onReset }) {
   return (
     <View style={styles.dashboard}>
       <View style={styles.dashboardTopRow}>
-        <Text style={styles.dashboardTitle}>Conquer The World</Text>
+        <View>
+          <Text style={styles.dashboardTitle}>Conquer The World</Text>
+          <Text style={styles.dashboardSubtitle}>{leaderTitle}</Text>
+        </View>
         <View style={styles.dashboardActions}>
           <Pressable onPress={onToggleSound} style={styles.dashboardIconButton} hitSlop={8}>
             <Text style={styles.dashboardIconText}>{soundEnabled ? '🔊' : '🔇'}</Text>
@@ -1171,6 +1426,11 @@ export default function App() {
   const [scores, setScores] = useState(defaultState.scores);
   const [unlockedIds, setUnlockedIds] = useState(defaultState.unlockedIds);
   const [pendingChoice, setPendingChoice] = useState(defaultState.pendingChoice);
+  const [pendingEvent, setPendingEvent] = useState(defaultState.pendingEvent);
+  // Mémoire simple des choix (prudent/audacieux) faits lors des événements
+  // aléatoires, par pays — sert uniquement de fil narratif si un nouvel
+  // événement touche le même pays plus tard (voir RandomEventModal).
+  const [eventChoices, setEventChoices] = useState(defaultState.eventChoices);
   const [isLoaded, setIsLoaded] = useState(false);
   // Pas de son pour l'instant : l'état et le bouton restent en place pour
   // brancher les effets sonores plus tard sans retoucher l'interface.
@@ -1191,6 +1451,8 @@ export default function App() {
         setScores(loaded.scores);
         setUnlockedIds(loaded.unlockedIds);
         setPendingChoice(loaded.pendingChoice);
+        setPendingEvent(loaded.pendingEvent);
+        setEventChoices(loaded.eventChoices);
         initialUnlockedIdsRef.current = new Set(loaded.unlockedIds);
         setIsLoaded(true);
       }
@@ -1200,12 +1462,12 @@ export default function App() {
     };
   }, []);
 
-  // Sauvegarde automatique à chaque changement de score, de pays débloqué ou
-  // de choix en attente.
+  // Sauvegarde automatique à chaque changement de score, de pays débloqué,
+  // de choix en attente, d'événement en attente ou de mémoire d'événements.
   useEffect(() => {
     if (!isLoaded) return;
-    saveGameState({ scores, unlockedIds, pendingChoice });
-  }, [scores, unlockedIds, pendingChoice, isLoaded]);
+    saveGameState({ scores, unlockedIds, pendingChoice, pendingEvent, eventChoices });
+  }, [scores, unlockedIds, pendingChoice, pendingEvent, eventChoices, isLoaded]);
 
   const handleResetPress = () => {
     Alert.alert(
@@ -1221,6 +1483,8 @@ export default function App() {
             setScores(fresh.scores);
             setUnlockedIds(fresh.unlockedIds);
             setPendingChoice(fresh.pendingChoice);
+            setPendingEvent(fresh.pendingEvent);
+            setEventChoices(fresh.eventChoices);
             initialUnlockedIdsRef.current = new Set(fresh.unlockedIds);
             clearGameState();
           },
@@ -1232,14 +1496,28 @@ export default function App() {
   // Si le pays vient de franchir son seuil pour la première fois, propose un
   // choix parmi 3 pays verrouillés de taille proche plutôt que de débloquer
   // automatiquement le suivant. Ne fait rien si un choix est déjà en attente
-  // (un seul à la fois) ou si tous les pays sont déjà débloqués.
+  // (un seul à la fois) ou si tous les pays sont déjà débloqués. Retourne
+  // true si un choix vient d'être déclenché, pour que les appelants (clic
+  // Développer, résolution d'événement) sachent s'ils doivent laisser la
+  // main à cette modale plutôt qu'à une autre.
   const maybeTriggerChoice = (country, prevScore, newScore) => {
     const threshold = getUnlockThreshold(country);
-    if (prevScore >= threshold || newScore < threshold || pendingChoice) return;
+    if (prevScore >= threshold || newScore < threshold || pendingChoice) return false;
     const lockedCountries = COUNTRIES.filter((c) => !unlockedIds.includes(c.id));
-    if (lockedCountries.length === 0) return;
+    if (lockedCountries.length === 0) return false;
     const candidates = pickChoiceCandidates(country, lockedCountries);
     setPendingChoice({ sourceId: country.id, optionIds: candidates.map((c) => c.id) });
+    return true;
+  };
+
+  // Tirage d'un événement aléatoire à chaque clic sur « Développer » (voir
+  // EVENT_TRIGGER_CHANCE). N'en déclenche jamais un par-dessus une modale
+  // déjà active (choix de pays ou autre événement).
+  const maybeTriggerRandomEvent = (country) => {
+    if (pendingChoice || pendingEvent) return;
+    if (Math.random() >= EVENT_TRIGGER_CHANCE) return;
+    const eventType = EVENT_TYPES[Math.floor(Math.random() * EVENT_TYPES.length)];
+    setPendingEvent({ countryId: country.id, eventKey: eventType.key });
   };
 
   const handleDevelop = (id) => {
@@ -1247,7 +1525,10 @@ export default function App() {
     const prevScore = scores[id] || 0;
     const newScore = prevScore + SCORE_INCREMENT;
     setScores((prev) => ({ ...prev, [id]: newScore }));
-    maybeTriggerChoice(country, prevScore, newScore);
+    const triggeredChoice = maybeTriggerChoice(country, prevScore, newScore);
+    if (!triggeredChoice) {
+      maybeTriggerRandomEvent(country);
+    }
   };
 
   const handleQuizCorrect = (id) => {
@@ -1264,13 +1545,37 @@ export default function App() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
   };
 
+  // Applique le résultat du choix fait dans RandomEventModal : score
+  // (jamais négatif), mémoire du choix pour ce pays, puis vérifie si ce
+  // gain fait franchir un seuil de déblocage — au cas où, on referme aussi
+  // l'événement immédiatement pour laisser la main à la modale de choix
+  // plutôt que d'avoir les deux actives en même temps.
+  const handleResolveEvent = (id, choiceKind, delta) => {
+    const country = COUNTRIES.find((c) => c.id === id);
+    const prevScore = scores[id] || 0;
+    const newScore = Math.max(0, prevScore + delta);
+    setScores((prev) => ({ ...prev, [id]: newScore }));
+    setEventChoices((prev) => ({ ...prev, [id]: choiceKind }));
+    const triggeredChoice = maybeTriggerChoice(country, prevScore, newScore);
+    if (triggeredChoice) {
+      setPendingEvent(null);
+    }
+    Haptics.impactAsync(
+      delta >= 0 ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Rigid
+    ).catch(() => {});
+  };
+
   const unlockedFlags = COUNTRIES.map((c) => unlockedIds.includes(c.id));
   const totalScore = Object.values(scores).reduce((sum, value) => sum + value, 0);
+  const leaderTitle = getLeaderTitle(unlockedIds.length);
   const latestUnlockedId = unlockedIds.length > 1 ? unlockedIds[unlockedIds.length - 1] : null;
   const choiceSourceCountry = pendingChoice ? COUNTRIES.find((c) => c.id === pendingChoice.sourceId) : null;
   const choiceOptions = pendingChoice
     ? pendingChoice.optionIds.map((id) => COUNTRIES.find((c) => c.id === id))
     : [];
+  const eventCountry = pendingEvent ? COUNTRIES.find((c) => c.id === pendingEvent.countryId) : null;
+  const eventType = pendingEvent ? EVENT_TYPES.find((e) => e.key === pendingEvent.eventKey) : null;
+  const eventPreviousChoice = pendingEvent ? eventChoices[pendingEvent.countryId] : null;
 
   if (!isLoaded) {
     return (
@@ -1288,6 +1593,7 @@ export default function App() {
         totalScore={totalScore}
         unlockedCount={unlockedIds.length}
         totalCount={COUNTRIES.length}
+        leaderTitle={leaderTitle}
         soundEnabled={soundEnabled}
         onToggleSound={() => setSoundEnabled((v) => !v)}
         onReset={handleResetPress}
@@ -1316,6 +1622,14 @@ export default function App() {
         sourceCountry={choiceSourceCountry}
         options={choiceOptions}
         onChoose={handleChooseCountry}
+      />
+      <RandomEventModal
+        visible={!!pendingEvent && !pendingChoice}
+        country={eventCountry}
+        eventType={eventType}
+        previousChoice={eventPreviousChoice}
+        onResolve={handleResolveEvent}
+        onClose={() => setPendingEvent(null)}
       />
     </SafeAreaView>
   );
@@ -1369,6 +1683,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: COLORS.surface,
     letterSpacing: 0.2,
+  },
+  dashboardSubtitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.gold,
+    marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   dashboardActions: {
     flexDirection: 'row',
@@ -1710,5 +2032,104 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: COLORS.muted,
     marginTop: 2,
+  },
+  choiceNarrative: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: COLORS.navy,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+
+  // Bouton générique « Continuer », partagé par le récit de déblocage et la
+  // résolution d'un événement aléatoire.
+  continueButton: {
+    backgroundColor: COLORS.blue,
+    paddingVertical: 13,
+    borderRadius: 999,
+    alignItems: 'center',
+  },
+  continueButtonText: {
+    color: COLORS.surface,
+    fontWeight: '800',
+    fontSize: 14,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+
+  // Modale d'événement aléatoire
+  eventCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: COLORS.surface,
+    borderRadius: 24,
+    padding: 22,
+    shadowColor: COLORS.navy,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  eventTitle: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: COLORS.navy,
+    textAlign: 'center',
+  },
+  eventCountry: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.muted,
+    textAlign: 'center',
+    marginTop: 2,
+    marginBottom: 14,
+  },
+  eventSituation: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: COLORS.navy,
+    lineHeight: 22,
+    marginBottom: 18,
+  },
+  eventOptionSafe: {
+    borderWidth: 1.5,
+    borderColor: COLORS.blue,
+    backgroundColor: COLORS.blueSoft,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+  },
+  eventOptionRisky: {
+    borderWidth: 1.5,
+    borderColor: COLORS.gold,
+    backgroundColor: COLORS.goldSoft,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+  },
+  eventOptionLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.navy,
+  },
+  eventOptionHint: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: COLORS.muted,
+    marginTop: 2,
+  },
+  eventResultText: {
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: 18,
+  },
+  eventResultSuccess: {
+    color: COLORS.success,
+  },
+  eventResultFailure: {
+    color: COLORS.danger,
   },
 });
