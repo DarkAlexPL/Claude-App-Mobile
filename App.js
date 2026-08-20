@@ -39,41 +39,69 @@ const QUIZ_BONUS = 20;
 const QUIZ_COOLDOWN_MS = 6000;
 const QUIZ_RESULT_AUTO_CLOSE_MS = 1800;
 
-// Sauvegarde locale : on ne stocke que le tableau des scores (un par pays,
-// dans l'ordre de COUNTRIES) — tout le reste (pays débloqués, seuils,
-// contributions...) s'en déduit à chaque rendu, donc rien d'autre à
-// persister. Toute erreur de lecture/écriture est avalée : le jeu doit
-// rester jouable même si le stockage échoue (voir loadScores/saveScores).
-const STORAGE_KEY = 'conquer-the-world:scores:v1';
+// Sauvegarde locale : scores indexés par id de pays (plus par position dans
+// COUNTRIES, puisque l'ordre de déblocage est désormais choisi par le joueur
+// et non fixe), la liste des pays débloqués dans leur ordre de déblocage, et
+// le choix en cours s'il y en a un (pour ne pas le perdre en cas de fermeture
+// de l'app pendant qu'une proposition est affichée). v2 car le format diffère
+// du tableau simple de v1 : une sauvegarde v1 est ignorée (nouvelle partie)
+// plutôt que migrée, la mécanique de progression ayant changé. Toute erreur
+// de lecture/écriture est avalée : le jeu doit rester jouable même si le
+// stockage échoue (voir loadGameState/saveGameState).
+const STORAGE_KEY = 'conquer-the-world:state:v2';
+const COUNTRY_IDS = new Set(COUNTRIES.map((c) => c.id));
+const STARTING_COUNTRY_ID = COUNTRIES[0].id;
 
-function getDefaultScores() {
-  return COUNTRIES.map(() => 0);
+function getDefaultGameState() {
+  return {
+    scores: { [STARTING_COUNTRY_ID]: 0 },
+    unlockedIds: [STARTING_COUNTRY_ID],
+    pendingChoice: null,
+  };
 }
 
-async function loadScores() {
+function isValidGameState(parsed) {
+  if (!parsed || typeof parsed !== 'object') return false;
+  const { scores, unlockedIds, pendingChoice } = parsed;
+  if (!scores || typeof scores !== 'object') return false;
+  if (!Array.isArray(unlockedIds) || unlockedIds.length === 0) return false;
+  if (!unlockedIds.every((id) => COUNTRY_IDS.has(id))) return false;
+  if (!Object.entries(scores).every(([id, value]) => COUNTRY_IDS.has(id) && typeof value === 'number')) {
+    return false;
+  }
+  if (pendingChoice !== null) {
+    if (!pendingChoice || !COUNTRY_IDS.has(pendingChoice.sourceId) || !Array.isArray(pendingChoice.optionIds)) {
+      return false;
+    }
+    if (!pendingChoice.optionIds.every((id) => COUNTRY_IDS.has(id) && !unlockedIds.includes(id))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function loadGameState() {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    if (!raw) return getDefaultScores();
+    if (!raw) return getDefaultGameState();
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length !== COUNTRIES.length || parsed.some((n) => typeof n !== 'number')) {
-      return getDefaultScores();
-    }
+    if (!isValidGameState(parsed)) return getDefaultGameState();
     return parsed;
   } catch (error) {
-    return getDefaultScores();
+    return getDefaultGameState();
   }
 }
 
-async function saveScores(scores) {
+async function saveGameState(state) {
   try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(scores));
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (error) {
     // Stockage indisponible (quota, plateforme...) : on continue sans
     // sauvegarder plutôt que de planter le jeu.
   }
 }
 
-async function clearScores() {
+async function clearGameState() {
   try {
     await AsyncStorage.removeItem(STORAGE_KEY);
   } catch (error) {
@@ -173,9 +201,10 @@ function getSizeIndex(country) {
   );
 }
 
-// Le seuil de déblocage du pays suivant est calibré sur la taille réelle
-// (superficie + population) du pays courant plutôt que sur sa seule position
-// dans la liste, arrondi au multiple de 10 le plus proche (clics de 10 pts).
+// Le seuil qui déclenche le choix du pays suivant est calibré sur la taille
+// réelle (superficie + population) du pays courant plutôt que sur sa seule
+// position dans la liste, arrondi au multiple de 10 le plus proche (clics de
+// 10 pts).
 function getUnlockThreshold(country) {
   const sizeIndex = getSizeIndex(country);
   return Math.round((MIN_UNLOCK_THRESHOLD + sizeIndex * UNLOCK_THRESHOLD_RANGE) / 10) * 10;
@@ -194,6 +223,23 @@ function getContributions(country, score) {
     return { ...criterion, value };
   });
   return contributions;
+}
+
+const CHOICE_OPTIONS_COUNT = 3;
+const CHOICE_CANDIDATE_POOL_SIZE = 6;
+
+// Tire les pays proposés au joueur quand un pays atteint son seuil : parmi
+// les pays encore verrouillés, on retient ceux dont la taille (superficie +
+// population normalisées) est la plus proche de celle du pays qui vient
+// d'être développé, puis on en tire 3 au hasard dans ce sous-groupe pour
+// garder un peu de variété d'une partie à l'autre.
+function pickChoiceCandidates(sourceCountry, lockedCountries) {
+  if (lockedCountries.length === 0) return [];
+  const sourceSize = getSizeIndex(sourceCountry);
+  const closest = [...lockedCountries]
+    .sort((a, b) => Math.abs(getSizeIndex(a) - sourceSize) - Math.abs(getSizeIndex(b) - sourceSize))
+    .slice(0, Math.min(CHOICE_CANDIDATE_POOL_SIZE, lockedCountries.length));
+  return shuffle(closest).slice(0, Math.min(CHOICE_OPTIONS_COUNT, closest.length));
 }
 
 function getScoreColor(score, threshold) {
@@ -431,17 +477,45 @@ function CountryDetailModal({ visible, country, score, threshold, onClose }) {
   );
 }
 
-function CountryCard({ country, allCountries, score, threshold, isPlayable, isUnlocked, onDevelop, onQuizCorrect }) {
+// Modale de choix affichée quand un pays atteint son seuil : le joueur
+// choisit lequel des 3 pays proposés rejoint sa liste de pays débloqués. Pas
+// de bouton de fermeture ni de onRequestClose actif : le choix est
+// obligatoire, sinon la progression resterait bloquée sans pays jouable de
+// plus.
+function CountryChoiceModal({ visible, sourceCountry, options, onChoose }) {
+  if (!visible || !sourceCountry || options.length === 0) return null;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={() => {}}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.choiceCard}>
+          <Text style={styles.choiceTitle}>{sourceCountry.name} est développé !</Text>
+          <Text style={styles.choiceSubtitle}>Choisis le prochain pays à conquérir :</Text>
+          {options.map((country) => (
+            <Pressable key={country.id} onPress={() => onChoose(country.id)} style={styles.choiceOption}>
+              <Text style={styles.choiceFlag}>{country.flag}</Text>
+              <View style={styles.choiceInfo}>
+                <Text style={styles.choiceName}>{country.name}</Text>
+                <Text style={styles.choiceArea}>{country.area}</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function CountryCard({ country, allCountries, score, threshold, isNew, isUnlocked, onDevelop, onQuizCorrect }) {
   const scoreAnim = useRef(new Animated.Value(0)).current;
   const [displayedScore, setDisplayedScore] = useState(0);
   const buttonScale = useRef(new Animated.Value(1)).current;
   const cardScale = useRef(new Animated.Value(1)).current;
   const celebrateAnim = useRef(new Animated.Value(0)).current;
   const badgeAnim = useRef(new Animated.Value(isUnlocked ? 1 : 0)).current;
-  const entranceAnim = useRef(new Animated.Value(isPlayable ? 1 : 0)).current;
+  const entranceAnim = useRef(new Animated.Value(isNew ? 0 : 1)).current;
   const [showBadge, setShowBadge] = useState(isUnlocked);
   const prevScoreRef = useRef(score);
-  const isFirstPlayable = useRef(true);
   const [quizVisible, setQuizVisible] = useState(false);
   const [quizOnCooldown, setQuizOnCooldown] = useState(false);
   const cooldownTimeoutRef = useRef(null);
@@ -487,15 +561,14 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
     }
   }, [isUnlocked, badgeAnim]);
 
+  // Anime l'entrée uniquement pour un pays qui vient d'être débloqué pendant
+  // cette session (isNew) : les cartes déjà débloquées au chargement de la
+  // sauvegarde démarrent directement à pleine opacité.
   useEffect(() => {
-    if (isFirstPlayable.current) {
-      isFirstPlayable.current = false;
-      return;
-    }
-    if (isPlayable) {
+    if (isNew) {
       Animated.timing(entranceAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
     }
-  }, [isPlayable, entranceAnim]);
+  }, [isNew, entranceAnim]);
 
   useEffect(() => () => {
     if (cooldownTimeoutRef.current) clearTimeout(cooldownTimeoutRef.current);
@@ -522,7 +595,7 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
   });
 
   const contributions = getContributions(country, displayedScore);
-  const isQuizDisabled = !isPlayable || quizOnCooldown;
+  const isQuizDisabled = quizOnCooldown;
 
   return (
     <Animated.View
@@ -572,19 +645,10 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
         <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
       </View>
       <View style={styles.buttonRow}>
-        <Pressable style={styles.buttonFlex} onPress={handlePress} disabled={!isPlayable}>
-          <Animated.View
-            style={[
-              styles.button,
-              !isPlayable && styles.buttonDisabled,
-              { transform: [{ scale: buttonScale }] },
-            ]}
-          >
+        <Pressable style={styles.buttonFlex} onPress={handlePress}>
+          <Animated.View style={[styles.button, { transform: [{ scale: buttonScale }] }]}>
             <View style={styles.buttonContent}>
-              {!isPlayable && <Text style={styles.lockIcon}>🔒</Text>}
-              <Text style={[styles.buttonText, !isPlayable && styles.buttonTextDisabled]}>
-                Développer
-              </Text>
+              <Text style={styles.buttonText}>Développer</Text>
             </View>
           </Animated.View>
         </Pressable>
@@ -619,11 +683,18 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
 }
 
 export default function App() {
-  const [scores, setScores] = useState(getDefaultScores());
+  const defaultState = useRef(getDefaultGameState()).current;
+  const [scores, setScores] = useState(defaultState.scores);
+  const [unlockedIds, setUnlockedIds] = useState(defaultState.unlockedIds);
+  const [pendingChoice, setPendingChoice] = useState(defaultState.pendingChoice);
   const [isLoaded, setIsLoaded] = useState(false);
   // Pas de son pour l'instant : l'état et le bouton restent en place pour
   // brancher les effets sonores plus tard sans retoucher l'interface.
   const [soundEnabled, setSoundEnabled] = useState(true);
+  // Capture les pays déjà débloqués au chargement de la sauvegarde, pour ne
+  // jouer l'animation d'entrée des cartes que sur les pays débloqués pendant
+  // cette session (voir isNew sur CountryCard).
+  const initialUnlockedIdsRef = useRef(null);
 
   // Chargement de la sauvegarde au lancement. isLoaded ne passe à true
   // qu'une fois la lecture terminée (réussie ou non), pour ne jamais
@@ -631,9 +702,12 @@ export default function App() {
   // avant qu'elle ait eu le temps d'être relue.
   useEffect(() => {
     let cancelled = false;
-    loadScores().then((loaded) => {
+    loadGameState().then((loaded) => {
       if (!cancelled) {
-        setScores(loaded);
+        setScores(loaded.scores);
+        setUnlockedIds(loaded.unlockedIds);
+        setPendingChoice(loaded.pendingChoice);
+        initialUnlockedIdsRef.current = new Set(loaded.unlockedIds);
         setIsLoaded(true);
       }
     });
@@ -642,14 +716,12 @@ export default function App() {
     };
   }, []);
 
-  // Sauvegarde automatique à chaque changement de score (Développer ou
-  // quiz réussi font tous les deux passer par setScores, donc un seul
-  // effet suffit à couvrir les deux cas, ainsi que le déblocage d'un
-  // pays qui en découle).
+  // Sauvegarde automatique à chaque changement de score, de pays débloqué ou
+  // de choix en attente.
   useEffect(() => {
     if (!isLoaded) return;
-    saveScores(scores);
-  }, [scores, isLoaded]);
+    saveGameState({ scores, unlockedIds, pendingChoice });
+  }, [scores, unlockedIds, pendingChoice, isLoaded]);
 
   const handleResetPress = () => {
     Alert.alert(
@@ -661,39 +733,59 @@ export default function App() {
           text: 'Recommencer',
           style: 'destructive',
           onPress: () => {
-            setScores(getDefaultScores());
-            clearScores();
+            const fresh = getDefaultGameState();
+            setScores(fresh.scores);
+            setUnlockedIds(fresh.unlockedIds);
+            setPendingChoice(fresh.pendingChoice);
+            initialUnlockedIdsRef.current = new Set(fresh.unlockedIds);
+            clearGameState();
           },
         },
       ]
     );
   };
 
-  const handleDevelop = (index) => {
-    setScores((prev) => {
-      const next = [...prev];
-      next[index] += SCORE_INCREMENT;
-      return next;
-    });
+  // Si le pays vient de franchir son seuil pour la première fois, propose un
+  // choix parmi 3 pays verrouillés de taille proche plutôt que de débloquer
+  // automatiquement le suivant. Ne fait rien si un choix est déjà en attente
+  // (un seul à la fois) ou si tous les pays sont déjà débloqués.
+  const maybeTriggerChoice = (country, prevScore, newScore) => {
+    const threshold = getUnlockThreshold(country);
+    if (prevScore >= threshold || newScore < threshold || pendingChoice) return;
+    const lockedCountries = COUNTRIES.filter((c) => !unlockedIds.includes(c.id));
+    if (lockedCountries.length === 0) return;
+    const candidates = pickChoiceCandidates(country, lockedCountries);
+    setPendingChoice({ sourceId: country.id, optionIds: candidates.map((c) => c.id) });
   };
 
-  const handleQuizCorrect = (index) => {
-    setScores((prev) => {
-      const next = [...prev];
-      next[index] += QUIZ_BONUS;
-      return next;
-    });
+  const handleDevelop = (id) => {
+    const country = COUNTRIES.find((c) => c.id === id);
+    const prevScore = scores[id] || 0;
+    const newScore = prevScore + SCORE_INCREMENT;
+    setScores((prev) => ({ ...prev, [id]: newScore }));
+    maybeTriggerChoice(country, prevScore, newScore);
   };
 
-  const playableFlags = COUNTRIES.map(
-    (_country, index) => index === 0 || scores[index - 1] >= getUnlockThreshold(COUNTRIES[index - 1])
-  );
+  const handleQuizCorrect = (id) => {
+    const country = COUNTRIES.find((c) => c.id === id);
+    const prevScore = scores[id] || 0;
+    const newScore = prevScore + QUIZ_BONUS;
+    setScores((prev) => ({ ...prev, [id]: newScore }));
+    maybeTriggerChoice(country, prevScore, newScore);
+  };
 
-  const latestUnlockedIndex = COUNTRIES.reduce(
-    (latest, _country, index) =>
-      index > 0 && scores[index - 1] >= getUnlockThreshold(COUNTRIES[index - 1]) ? index : latest,
-    null
-  );
+  const handleChooseCountry = (id) => {
+    setUnlockedIds((prev) => [...prev, id]);
+    setPendingChoice(null);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+  };
+
+  const unlockedFlags = COUNTRIES.map((c) => unlockedIds.includes(c.id));
+  const latestUnlockedId = unlockedIds.length > 1 ? unlockedIds[unlockedIds.length - 1] : null;
+  const choiceSourceCountry = pendingChoice ? COUNTRIES.find((c) => c.id === pendingChoice.sourceId) : null;
+  const choiceOptions = pendingChoice
+    ? pendingChoice.optionIds.map((id) => COUNTRIES.find((c) => c.id === id))
+    : [];
 
   if (!isLoaded) {
     return (
@@ -706,7 +798,7 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="auto" />
-      <WorldMapBackground unlockedFlags={playableFlags} />
+      <WorldMapBackground unlockedFlags={unlockedFlags} />
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.headerRow}>
           <View style={styles.headerSpacer} />
@@ -724,20 +816,30 @@ export default function App() {
             </Pressable>
           </View>
         </View>
-        {COUNTRIES.map((country, index) => (
-          <CountryCard
-            key={country.id}
-            country={country}
-            allCountries={COUNTRIES}
-            score={scores[index]}
-            threshold={getUnlockThreshold(country)}
-            isPlayable={playableFlags[index]}
-            isUnlocked={index === latestUnlockedIndex}
-            onDevelop={() => handleDevelop(index)}
-            onQuizCorrect={() => handleQuizCorrect(index)}
-          />
-        ))}
+        {unlockedIds.map((id) => {
+          const country = COUNTRIES.find((c) => c.id === id);
+          const isNew = initialUnlockedIdsRef.current ? !initialUnlockedIdsRef.current.has(id) : false;
+          return (
+            <CountryCard
+              key={country.id}
+              country={country}
+              allCountries={COUNTRIES}
+              score={scores[id] || 0}
+              threshold={getUnlockThreshold(country)}
+              isNew={isNew}
+              isUnlocked={id === latestUnlockedId}
+              onDevelop={() => handleDevelop(id)}
+              onQuizCorrect={() => handleQuizCorrect(id)}
+            />
+          );
+        })}
       </ScrollView>
+      <CountryChoiceModal
+        visible={!!pendingChoice}
+        sourceCountry={choiceSourceCountry}
+        options={choiceOptions}
+        onChoose={handleChooseCountry}
+      />
     </SafeAreaView>
   );
 }
@@ -1024,5 +1126,51 @@ const styles = StyleSheet.create({
     marginTop: 16,
     textAlign: 'center',
     fontSize: 17,
+  },
+  choiceCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 20,
+  },
+  choiceTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1c2733',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  choiceSubtitle: {
+    fontSize: 14,
+    color: '#5b6b7c',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  choiceOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#d7dee6',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+  },
+  choiceFlag: {
+    fontSize: 36,
+    marginRight: 12,
+  },
+  choiceInfo: {
+    flex: 1,
+  },
+  choiceName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1c2733',
+  },
+  choiceArea: {
+    fontSize: 13,
+    color: '#5b6b7c',
+    marginTop: 2,
   },
 });
