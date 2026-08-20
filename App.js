@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { Animated, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Alert, Animated, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 // Triés par superficie croissante. areaKm2/population sont les valeurs brutes
 // utilisées pour le calcul du score et des seuils ; area est la chaîne déjà
@@ -37,6 +38,48 @@ const SCORE_INCREMENT = 10;
 const QUIZ_BONUS = 20;
 const QUIZ_COOLDOWN_MS = 6000;
 const QUIZ_RESULT_AUTO_CLOSE_MS = 1800;
+
+// Sauvegarde locale : on ne stocke que le tableau des scores (un par pays,
+// dans l'ordre de COUNTRIES) — tout le reste (pays débloqués, seuils,
+// contributions...) s'en déduit à chaque rendu, donc rien d'autre à
+// persister. Toute erreur de lecture/écriture est avalée : le jeu doit
+// rester jouable même si le stockage échoue (voir loadScores/saveScores).
+const STORAGE_KEY = 'conquer-the-world:scores:v1';
+
+function getDefaultScores() {
+  return COUNTRIES.map(() => 0);
+}
+
+async function loadScores() {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    if (!raw) return getDefaultScores();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length !== COUNTRIES.length || parsed.some((n) => typeof n !== 'number')) {
+      return getDefaultScores();
+    }
+    return parsed;
+  } catch (error) {
+    return getDefaultScores();
+  }
+}
+
+async function saveScores(scores) {
+  try {
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(scores));
+  } catch (error) {
+    // Stockage indisponible (quota, plateforme...) : on continue sans
+    // sauvegarder plutôt que de planter le jeu.
+  }
+}
+
+async function clearScores() {
+  try {
+    await AsyncStorage.removeItem(STORAGE_KEY);
+  } catch (error) {
+    // idem : on ignore, la réinitialisation en mémoire a déjà eu lieu.
+  }
+}
 
 // Critères de score : chacun a un poids et une valeur de référence (le maximum
 // réaliste au niveau mondial, pas seulement dans la liste actuelle) afin que
@@ -576,10 +619,55 @@ function CountryCard({ country, allCountries, score, threshold, isPlayable, isUn
 }
 
 export default function App() {
-  const [scores, setScores] = useState(COUNTRIES.map(() => 0));
+  const [scores, setScores] = useState(getDefaultScores());
+  const [isLoaded, setIsLoaded] = useState(false);
   // Pas de son pour l'instant : l'état et le bouton restent en place pour
   // brancher les effets sonores plus tard sans retoucher l'interface.
   const [soundEnabled, setSoundEnabled] = useState(true);
+
+  // Chargement de la sauvegarde au lancement. isLoaded ne passe à true
+  // qu'une fois la lecture terminée (réussie ou non), pour ne jamais
+  // sauvegarder l'état par défaut par-dessus une sauvegarde existante
+  // avant qu'elle ait eu le temps d'être relue.
+  useEffect(() => {
+    let cancelled = false;
+    loadScores().then((loaded) => {
+      if (!cancelled) {
+        setScores(loaded);
+        setIsLoaded(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Sauvegarde automatique à chaque changement de score (Développer ou
+  // quiz réussi font tous les deux passer par setScores, donc un seul
+  // effet suffit à couvrir les deux cas, ainsi que le déblocage d'un
+  // pays qui en découle).
+  useEffect(() => {
+    if (!isLoaded) return;
+    saveScores(scores);
+  }, [scores, isLoaded]);
+
+  const handleResetPress = () => {
+    Alert.alert(
+      'Recommencer la partie ?',
+      'Toute ta progression (scores, pays débloqués) sera définitivement effacée.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Recommencer',
+          style: 'destructive',
+          onPress: () => {
+            setScores(getDefaultScores());
+            clearScores();
+          },
+        },
+      ]
+    );
+  };
 
   const handleDevelop = (index) => {
     setScores((prev) => {
@@ -607,6 +695,14 @@ export default function App() {
     null
   );
 
+  if (!isLoaded) {
+    return (
+      <SafeAreaView style={[styles.safeArea, styles.loadingContainer]}>
+        <Text style={styles.loadingText}>Chargement...</Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="auto" />
@@ -615,13 +711,18 @@ export default function App() {
         <View style={styles.headerRow}>
           <View style={styles.headerSpacer} />
           <Text style={styles.title}>Conquer The World</Text>
-          <Pressable
-            onPress={() => setSoundEnabled((v) => !v)}
-            style={styles.soundButton}
-            hitSlop={8}
-          >
-            <Text style={styles.soundButtonText}>{soundEnabled ? '🔊' : '🔇'}</Text>
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable
+              onPress={() => setSoundEnabled((v) => !v)}
+              style={styles.soundButton}
+              hitSlop={8}
+            >
+              <Text style={styles.soundButtonText}>{soundEnabled ? '🔊' : '🔇'}</Text>
+            </Pressable>
+            <Pressable onPress={handleResetPress} style={styles.soundButton} hitSlop={8}>
+              <Text style={styles.soundButtonText}>♻️</Text>
+            </Pressable>
+          </View>
         </View>
         {COUNTRIES.map((country, index) => (
           <CountryCard
@@ -646,6 +747,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f2f5f9',
   },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#5b6b7c',
+  },
   mapBackground: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#f2f5f9',
@@ -661,7 +770,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   headerSpacer: {
-    width: 36,
+    width: 80,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
   },
   title: {
     flex: 1,
