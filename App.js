@@ -7,31 +7,35 @@ import { Alert, Animated, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet
 
 // Triés par superficie croissante. areaKm2/population sont les valeurs brutes
 // utilisées pour le calcul du score et des seuils ; area est la chaîne déjà
-// formatée pour l'affichage (gère les décimales de Vatican/Monaco). capital,
-// language et continent alimentent les questions de quiz (voir QUIZ_QUESTION_TYPES).
-// Pour ajouter un pays : une entrée { id, name, area, areaKm2, population, flag,
-// capital, language, continent }.
+// formatée pour l'affichage (gère les décimales de Vatican/Monaco). gdp et
+// military sont en millions de dollars (PIB nominal et budget militaire
+// annuel), wealth est le PIB par habitant en dollars — trois valeurs
+// approximatives à but ludique/pédagogique (pas des chiffres officiels au
+// dollar près). capital, language et continent alimentent les questions de
+// quiz (voir QUIZ_QUESTION_TYPES). Pour ajouter un pays : une entrée { id,
+// name, area, areaKm2, population, gdp, military, wealth, flag, capital,
+// language, continent }.
 const COUNTRIES = [
-  { id: 'va', name: 'Vatican', area: '0,44 km²', areaKm2: 0.44, population: 800, flag: '🇻🇦', capital: 'Cité du Vatican', language: 'Italien', continent: 'Europe' },
-  { id: 'mc', name: 'Monaco', area: '2,1 km²', areaKm2: 2.1, population: 39000, flag: '🇲🇨', capital: 'Monaco-Ville', language: 'Français', continent: 'Europe' },
-  { id: 'mt', name: 'Malte', area: '316 km²', areaKm2: 316, population: 530000, flag: '🇲🇹', capital: 'La Valette', language: 'Maltais', continent: 'Europe' },
-  { id: 'ad', name: 'Andorre', area: '468 km²', areaKm2: 468, population: 80000, flag: '🇦🇩', capital: 'Andorre-la-Vieille', language: 'Catalan', continent: 'Europe' },
-  { id: 'sg', name: 'Singapour', area: '728 km²', areaKm2: 728, population: 5900000, flag: '🇸🇬', capital: 'Singapour', language: 'Anglais', continent: 'Asie' },
-  { id: 'lu', name: 'Luxembourg', area: '2 586 km²', areaKm2: 2586, population: 660000, flag: '🇱🇺', capital: 'Luxembourg', language: 'Luxembourgeois', continent: 'Europe' },
-  { id: 'pt', name: 'Portugal', area: '92 212 km²', areaKm2: 92212, population: 10300000, flag: '🇵🇹', capital: 'Lisbonne', language: 'Portugais', continent: 'Europe' },
-  { id: 'gr', name: 'Grèce', area: '131 957 km²', areaKm2: 131957, population: 10400000, flag: '🇬🇷', capital: 'Athènes', language: 'Grec', continent: 'Europe' },
-  { id: 'jp', name: 'Japon', area: '377 975 km²', areaKm2: 377975, population: 123000000, flag: '🇯🇵', capital: 'Tokyo', language: 'Japonais', continent: 'Asie' },
-  { id: 'fr', name: 'France', area: '551 695 km²', areaKm2: 551695, population: 68000000, flag: '🇫🇷', capital: 'Paris', language: 'Français', continent: 'Europe' },
-  { id: 'ke', name: 'Kenya', area: '580 367 km²', areaKm2: 580367, population: 55000000, flag: '🇰🇪', capital: 'Nairobi', language: 'Swahili', continent: 'Afrique' },
-  { id: 'ua', name: 'Ukraine', area: '603 550 km²', areaKm2: 603550, population: 36000000, flag: '🇺🇦', capital: 'Kiev', language: 'Ukrainien', continent: 'Europe' },
-  { id: 'eg', name: 'Égypte', area: '1 002 450 km²', areaKm2: 1002450, population: 112000000, flag: '🇪🇬', capital: 'Le Caire', language: 'Arabe', continent: 'Afrique' },
-  { id: 'mx', name: 'Mexique', area: '1 964 375 km²', areaKm2: 1964375, population: 128000000, flag: '🇲🇽', capital: 'Mexico', language: 'Espagnol', continent: 'Amérique' },
-  { id: 'ar', name: 'Argentine', area: '2 780 400 km²', areaKm2: 2780400, population: 46000000, flag: '🇦🇷', capital: 'Buenos Aires', language: 'Espagnol', continent: 'Amérique' },
-  { id: 'in', name: 'Inde', area: '3 287 263 km²', areaKm2: 3287263, population: 1428000000, flag: '🇮🇳', capital: 'New Delhi', language: 'Hindi', continent: 'Asie' },
-  { id: 'au', name: 'Australie', area: '7 692 024 km²', areaKm2: 7692024, population: 26000000, flag: '🇦🇺', capital: 'Canberra', language: 'Anglais', continent: 'Océanie' },
-  { id: 'br', name: 'Brésil', area: '8 515 767 km²', areaKm2: 8515767, population: 216000000, flag: '🇧🇷', capital: 'Brasília', language: 'Portugais', continent: 'Amérique' },
-  { id: 'cn', name: 'Chine', area: '9 596 961 km²', areaKm2: 9596961, population: 1410000000, flag: '🇨🇳', capital: 'Pékin', language: 'Mandarin', continent: 'Asie' },
-  { id: 'ca', name: 'Canada', area: '9 984 670 km²', areaKm2: 9984670, population: 39000000, flag: '🇨🇦', capital: 'Ottawa', language: 'Anglais', continent: 'Amérique' },
+  { id: 'va', name: 'Vatican', area: '0,44 km²', areaKm2: 0.44, population: 800, gdp: 20, military: 10, wealth: 90000, flag: '🇻🇦', capital: 'Cité du Vatican', language: 'Italien', continent: 'Europe' },
+  { id: 'mc', name: 'Monaco', area: '2,1 km²', areaKm2: 2.1, population: 39000, gdp: 8700, military: 15, wealth: 234000, flag: '🇲🇨', capital: 'Monaco-Ville', language: 'Français', continent: 'Europe' },
+  { id: 'mt', name: 'Malte', area: '316 km²', areaKm2: 316, population: 530000, gdp: 17700, military: 80, wealth: 33000, flag: '🇲🇹', capital: 'La Valette', language: 'Maltais', continent: 'Europe' },
+  { id: 'ad', name: 'Andorre', area: '468 km²', areaKm2: 468, population: 80000, gdp: 3300, military: 5, wealth: 42000, flag: '🇦🇩', capital: 'Andorre-la-Vieille', language: 'Catalan', continent: 'Europe' },
+  { id: 'sg', name: 'Singapour', area: '728 km²', areaKm2: 728, population: 5900000, gdp: 501000, military: 13000, wealth: 84000, flag: '🇸🇬', capital: 'Singapour', language: 'Anglais', continent: 'Asie' },
+  { id: 'lu', name: 'Luxembourg', area: '2 586 km²', areaKm2: 2586, population: 660000, gdp: 85000, military: 500, wealth: 128000, flag: '🇱🇺', capital: 'Luxembourg', language: 'Luxembourgeois', continent: 'Europe' },
+  { id: 'pt', name: 'Portugal', area: '92 212 km²', areaKm2: 92212, population: 10300000, gdp: 289000, military: 4300, wealth: 28000, flag: '🇵🇹', capital: 'Lisbonne', language: 'Portugais', continent: 'Europe' },
+  { id: 'gr', name: 'Grèce', area: '131 957 km²', areaKm2: 131957, population: 10400000, gdp: 238000, military: 8000, wealth: 22900, flag: '🇬🇷', capital: 'Athènes', language: 'Grec', continent: 'Europe' },
+  { id: 'jp', name: 'Japon', area: '377 975 km²', areaKm2: 377975, population: 123000000, gdp: 4200000, military: 50000, wealth: 33900, flag: '🇯🇵', capital: 'Tokyo', language: 'Japonais', continent: 'Asie' },
+  { id: 'fr', name: 'France', area: '551 695 km²', areaKm2: 551695, population: 68000000, gdp: 3030000, military: 61000, wealth: 44500, flag: '🇫🇷', capital: 'Paris', language: 'Français', continent: 'Europe' },
+  { id: 'ke', name: 'Kenya', area: '580 367 km²', areaKm2: 580367, population: 55000000, gdp: 118000, military: 1200, wealth: 2100, flag: '🇰🇪', capital: 'Nairobi', language: 'Swahili', continent: 'Afrique' },
+  { id: 'ua', name: 'Ukraine', area: '603 550 km²', areaKm2: 603550, population: 36000000, gdp: 178000, military: 64000, wealth: 5000, flag: '🇺🇦', capital: 'Kiev', language: 'Ukrainien', continent: 'Europe' },
+  { id: 'eg', name: 'Égypte', area: '1 002 450 km²', areaKm2: 1002450, population: 112000000, gdp: 380000, military: 4500, wealth: 3500, flag: '🇪🇬', capital: 'Le Caire', language: 'Arabe', continent: 'Afrique' },
+  { id: 'mx', name: 'Mexique', area: '1 964 375 km²', areaKm2: 1964375, population: 128000000, gdp: 1790000, military: 8500, wealth: 13800, flag: '🇲🇽', capital: 'Mexico', language: 'Espagnol', continent: 'Amérique' },
+  { id: 'ar', name: 'Argentine', area: '2 780 400 km²', areaKm2: 2780400, population: 46000000, gdp: 640000, military: 3000, wealth: 13700, flag: '🇦🇷', capital: 'Buenos Aires', language: 'Espagnol', continent: 'Amérique' },
+  { id: 'in', name: 'Inde', area: '3 287 263 km²', areaKm2: 3287263, population: 1428000000, gdp: 3730000, military: 83000, wealth: 2600, flag: '🇮🇳', capital: 'New Delhi', language: 'Hindi', continent: 'Asie' },
+  { id: 'au', name: 'Australie', area: '7 692 024 km²', areaKm2: 7692024, population: 26000000, gdp: 1690000, military: 32000, wealth: 65000, flag: '🇦🇺', capital: 'Canberra', language: 'Anglais', continent: 'Océanie' },
+  { id: 'br', name: 'Brésil', area: '8 515 767 km²', areaKm2: 8515767, population: 216000000, gdp: 2170000, military: 22000, wealth: 10000, flag: '🇧🇷', capital: 'Brasília', language: 'Portugais', continent: 'Amérique' },
+  { id: 'cn', name: 'Chine', area: '9 596 961 km²', areaKm2: 9596961, population: 1410000000, gdp: 17700000, military: 296000, wealth: 12600, flag: '🇨🇳', capital: 'Pékin', language: 'Mandarin', continent: 'Asie' },
+  { id: 'ca', name: 'Canada', area: '9 984 670 km²', areaKm2: 9984670, population: 39000000, gdp: 2140000, military: 27000, wealth: 53000, flag: '🇨🇦', capital: 'Ottawa', language: 'Anglais', continent: 'Amérique' },
 ];
 
 const SCORE_INCREMENT = 10;
@@ -111,16 +115,26 @@ async function clearGameState() {
 
 // Critères de score : chacun a un poids et une valeur de référence (le maximum
 // réaliste au niveau mondial, pas seulement dans la liste actuelle) afin que
-// les seuils restent stables si la liste s'étend vers les ~195 pays. Pour
-// ajouter un critère plus tard (PIB, armée, richesse...), il suffit d'ajouter
-// une entrée ici et un champ correspondant sur chaque pays.
+// les seuils restent stables si la liste s'étend vers les ~195 pays. Poids
+// égaux (0.2 chacun, somme à 1) pour qu'aucun critère ne domine à lui seul :
+// les micro-États s'en sortent via leur richesse par habitant, les grandes
+// puissances via superficie/population/PIB/armée. Pour ajouter un critère
+// plus tard, il suffit d'ajouter une entrée ici et un champ correspondant sur
+// chaque pays.
 const SCORE_CRITERIA = [
-  { key: 'areaKm2', label: 'Superficie', weight: 0.5, maxValue: 17098242 }, // superficie de la Russie
-  { key: 'population', label: 'Population', weight: 0.5, maxValue: 1450000000 }, // ~ Inde/Chine
+  { key: 'areaKm2', label: 'Superficie', weight: 0.2, maxValue: 17098242 }, // superficie de la Russie
+  { key: 'population', label: 'Population', weight: 0.2, maxValue: 1450000000 }, // ~ Inde/Chine
+  { key: 'gdp', label: 'PIB', weight: 0.2, maxValue: 27000000 }, // PIB nominal des États-Unis, en millions de dollars
+  { key: 'military', label: 'Budget militaire', weight: 0.2, maxValue: 880000 }, // budget militaire des États-Unis, en millions de dollars
+  { key: 'wealth', label: 'Richesse (PIB/habitant)', weight: 0.2, maxValue: 240000 }, // PIB/habitant le plus élevé au monde, en dollars
 ];
 
 const MIN_UNLOCK_THRESHOLD = 50;
-const UNLOCK_THRESHOLD_RANGE = 300;
+// Recalibré (300 → 450) : avec 5 critères au lieu de 2, l'indice de taille de
+// chaque pays est plus dilué (aucun pays ne s'approche plus de 1), donc sans
+// ajustement les seuils auraient tous baissé. 450 ramène le seuil du pays le
+// plus « grand » (Chine) à ~280, comme avant l'ajout du PIB/armée/richesse.
+const UNLOCK_THRESHOLD_RANGE = 450;
 
 // Types de questions de quiz. Pour ajouter un type, il suffit d'ajouter une
 // entrée ici : { key, buildPrompt, getCorrectAnswer, getDistractorValues,
@@ -159,6 +173,22 @@ const QUIZ_QUESTION_TYPES = [
       allCountries.filter((c) => c.id !== country.id).map((c) => c.continent),
     isEmoji: false,
   },
+  {
+    key: 'gdp',
+    buildPrompt: (country) => `Quel est approximativement le PIB de ${country.name} ?`,
+    getCorrectAnswer: (country) => formatMoneyMillions(country.gdp),
+    getDistractorValues: (country, allCountries) =>
+      allCountries.filter((c) => c.id !== country.id).map((c) => formatMoneyMillions(c.gdp)),
+    isEmoji: false,
+  },
+  {
+    key: 'military',
+    buildPrompt: (country) => `Quel est approximativement le budget militaire de ${country.name} ?`,
+    getCorrectAnswer: (country) => formatMoneyMillions(country.military),
+    getDistractorValues: (country, allCountries) =>
+      allCountries.filter((c) => c.id !== country.id).map((c) => formatMoneyMillions(c.military)),
+    isEmoji: false,
+  },
 ];
 
 function shuffle(array) {
@@ -190,6 +220,16 @@ function formatNumber(value) {
   return Math.round(value)
     .toString()
     .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+// gdp et military sont stockés en millions de dollars (voir COUNTRIES) pour
+// éviter des nombres à 14 chiffres sur des cartes étroites.
+function formatMoneyMillions(valueMillions) {
+  return `${formatNumber(valueMillions)} M$`;
+}
+
+function formatWealthPerCapita(value) {
+  return `${formatNumber(value)} $/hab.`;
 }
 
 // « Taille » normalisée d'un pays (0 à ~1) combinant tous les critères de
@@ -451,6 +491,24 @@ function CountryDetailModal({ visible, country, score, threshold, onClose }) {
             <Text style={styles.detailLabel}>Population</Text>
             <Text style={styles.detailValue}>
               {formatNumber(country.population)} hab. · {contributions[1].value} pts
+            </Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>PIB</Text>
+            <Text style={styles.detailValue}>
+              {formatMoneyMillions(country.gdp)} · {contributions[2].value} pts
+            </Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Budget militaire</Text>
+            <Text style={styles.detailValue}>
+              {formatMoneyMillions(country.military)} · {contributions[3].value} pts
+            </Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Richesse (PIB/hab.)</Text>
+            <Text style={styles.detailValue}>
+              {formatWealthPerCapita(country.wealth)} · {contributions[4].value} pts
             </Text>
           </View>
           <View style={styles.detailRow}>
