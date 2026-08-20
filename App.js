@@ -5,6 +5,34 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert, Animated, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+// Palette resserrée à 2 couleurs principales + variations fonctionnelles,
+// partagée par tout l'écran (liste, détail, choix, quiz) pour une identité
+// visuelle cohérente :
+// - navy/blue : couleur de marque (fond du dashboard, titres, action
+//   principale « Développer », progression) — navy = teinte sombre, blue =
+//   teinte vive, même famille.
+// - gold : accent unique pour tout ce qui touche au score/récompenses.
+// Le reste (teal, success, danger) sont des variations fonctionnelles
+// ponctuelles (action secondaire, état positif, mauvaise réponse), pas des
+// couleurs de marque supplémentaires.
+const COLORS = {
+  canvas: '#f5f2ea',
+  surface: '#ffffff',
+  navy: '#16233a',
+  navySoft: 'rgba(22, 35, 58, 0.06)',
+  blue: '#2f5fd6',
+  blueSoft: 'rgba(47, 95, 214, 0.10)',
+  gold: '#c98a2b',
+  goldSoft: 'rgba(201, 138, 43, 0.14)',
+  teal: '#1a9098',
+  success: '#1f9d63',
+  danger: '#c94a3a',
+  muted: '#6b7484',
+  border: '#eae5d8',
+  track: '#ece6d8',
+  disabled: '#d9d3c2',
+};
+
 // Triés par superficie croissante. areaKm2/population sont les valeurs brutes
 // utilisées pour le calcul du score et des seuils ; area est la chaîne déjà
 // formatée pour l'affichage (gère les décimales de Vatican/Monaco). gdp et
@@ -284,9 +312,9 @@ function pickChoiceCandidates(sourceCountry, lockedCountries) {
 
 function getScoreColor(score, threshold) {
   const ratio = Math.min(score, threshold) / threshold;
-  if (ratio >= 0.7) return '#2e9e5b';
-  if (ratio >= 0.3) return '#d98a1f';
-  return '#5b6b7c';
+  if (ratio >= 0.7) return COLORS.success;
+  if (ratio >= 0.3) return COLORS.gold;
+  return COLORS.muted;
 }
 
 // Carte du monde en projection équirectangulaire simplifiée (viewBox
@@ -361,30 +389,33 @@ const COUNTRY_COORDS = [
 ];
 
 // Fond de carte du monde : les continents restent dans une teinte neutre et
-// discrète, tandis qu'un point s'allume en bleu (couleur principale de
-// l'app) sur chaque pays débloqué, pour visualiser la conquête progressive.
-// pointerEvents="none" pour ne jamais intercepter les appuis ; les cartes
-// opaques des pays recouvrent la majorité du fond, qui ne reste visible que
-// dans les marges et l'en-tête.
+// discrète, tandis qu'un point s'allume (couleur d'accent) sur chaque pays
+// débloqué, pour visualiser la conquête progressive. pointerEvents="none"
+// pour ne jamais intercepter les appuis. unlockedFlags est optionnel : sans
+// lui (sur les écrans de détail/choix/quiz), le fond reste purement
+// décoratif, sans points. Rendu une seconde fois à l'intérieur de chaque
+// Modal, qui a son propre calque et ne voit donc pas le fond de l'écran
+// principal — ça garde la carte discrète cohérente sur tous les écrans.
 function WorldMapBackground({ unlockedFlags }) {
   return (
     <View style={styles.mapBackground} pointerEvents="none">
       <Svg width="100%" height="100%" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid slice">
         {CONTINENT_PATHS.map((d, index) => (
-          <Path key={index} d={d} fill="#dde4ec" />
+          <Path key={index} d={d} fill={COLORS.border} />
         ))}
-        {COUNTRY_COORDS.map(([lon, lat], index) => {
-          const [x, y] = project(lon, lat);
-          return (
-            <Circle
-              key={index}
-              cx={x}
-              cy={y}
-              r={unlockedFlags[index] ? 9 : 5}
-              fill={unlockedFlags[index] ? 'rgba(46, 95, 163, 0.65)' : 'rgba(28, 39, 51, 0.18)'}
-            />
-          );
-        })}
+        {unlockedFlags &&
+          COUNTRY_COORDS.map(([lon, lat], index) => {
+            const [x, y] = project(lon, lat);
+            return (
+              <Circle
+                key={index}
+                cx={x}
+                cy={y}
+                r={unlockedFlags[index] ? 9 : 5}
+                fill={unlockedFlags[index] ? 'rgba(47, 95, 214, 0.55)' : 'rgba(22, 35, 58, 0.12)'}
+              />
+            );
+          })}
       </Svg>
     </View>
   );
@@ -426,6 +457,8 @@ function QuizModal({ visible, country, allCountries, onCorrect, onClose }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
+        <WorldMapBackground />
+        <View style={styles.modalTint} />
         <Animated.View style={[styles.modalCard, { transform: [{ scale: cardPulse }] }]}>
           <Text style={styles.modalFlag}>{country.flag}</Text>
           <Text style={styles.modalPrompt}>{question.prompt}</Text>
@@ -475,6 +508,8 @@ function CountryDetailModal({ visible, country, score, threshold, onClose }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
+        <WorldMapBackground />
+        <View style={styles.modalTint} />
         <View style={styles.detailCard}>
           <Pressable onPress={onClose} style={styles.detailCloseButton} hitSlop={8}>
             <Text style={styles.detailCloseText}>✕</Text>
@@ -546,6 +581,8 @@ function CountryChoiceModal({ visible, sourceCountry, options, onChoose }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={() => {}}>
       <View style={styles.modalBackdrop}>
+        <WorldMapBackground />
+        <View style={styles.modalTint} />
         <View style={styles.choiceCard}>
           <Text style={styles.choiceTitle}>{sourceCountry.name} est développé !</Text>
           <Text style={styles.choiceSubtitle}>Choisis le prochain pays à conquérir :</Text>
@@ -740,6 +777,39 @@ function CountryCard({ country, allCountries, score, threshold, isNew, isUnlocke
   );
 }
 
+// Barre fixe en haut de l'écran principal (hors ScrollView, donc toujours
+// visible même quand la liste défile) : score total, progression globale
+// (pays débloqués / total), et raccourcis son/réinitialisation.
+function DashboardBar({ totalScore, unlockedCount, totalCount, soundEnabled, onToggleSound, onReset }) {
+  return (
+    <View style={styles.dashboard}>
+      <View style={styles.dashboardTopRow}>
+        <Text style={styles.dashboardTitle}>Conquer The World</Text>
+        <View style={styles.dashboardActions}>
+          <Pressable onPress={onToggleSound} style={styles.dashboardIconButton} hitSlop={8}>
+            <Text style={styles.dashboardIconText}>{soundEnabled ? '🔊' : '🔇'}</Text>
+          </Pressable>
+          <Pressable onPress={onReset} style={styles.dashboardIconButton} hitSlop={8}>
+            <Text style={styles.dashboardIconText}>♻️</Text>
+          </Pressable>
+        </View>
+      </View>
+      <View style={styles.dashboardStatsRow}>
+        <View style={styles.statChip}>
+          <Text style={styles.statChipLabel}>Score total</Text>
+          <Text style={styles.statChipValue}>{totalScore}</Text>
+        </View>
+        <View style={styles.statChip}>
+          <Text style={styles.statChipLabel}>Pays débloqués</Text>
+          <Text style={styles.statChipValue}>
+            {unlockedCount} / {totalCount}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export default function App() {
   const defaultState = useRef(getDefaultGameState()).current;
   const [scores, setScores] = useState(defaultState.scores);
@@ -839,6 +909,7 @@ export default function App() {
   };
 
   const unlockedFlags = COUNTRIES.map((c) => unlockedIds.includes(c.id));
+  const totalScore = Object.values(scores).reduce((sum, value) => sum + value, 0);
   const latestUnlockedId = unlockedIds.length > 1 ? unlockedIds[unlockedIds.length - 1] : null;
   const choiceSourceCountry = pendingChoice ? COUNTRIES.find((c) => c.id === pendingChoice.sourceId) : null;
   const choiceOptions = pendingChoice
@@ -857,23 +928,15 @@ export default function App() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="auto" />
       <WorldMapBackground unlockedFlags={unlockedFlags} />
+      <DashboardBar
+        totalScore={totalScore}
+        unlockedCount={unlockedIds.length}
+        totalCount={COUNTRIES.length}
+        soundEnabled={soundEnabled}
+        onToggleSound={() => setSoundEnabled((v) => !v)}
+        onReset={handleResetPress}
+      />
       <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.headerRow}>
-          <View style={styles.headerSpacer} />
-          <Text style={styles.title}>Conquer The World</Text>
-          <View style={styles.headerActions}>
-            <Pressable
-              onPress={() => setSoundEnabled((v) => !v)}
-              style={styles.soundButton}
-              hitSlop={8}
-            >
-              <Text style={styles.soundButtonText}>{soundEnabled ? '🔊' : '🔇'}</Text>
-            </Pressable>
-            <Pressable onPress={handleResetPress} style={styles.soundButton} hitSlop={8}>
-              <Text style={styles.soundButtonText}>♻️</Text>
-            </Pressable>
-          </View>
-        </View>
         {unlockedIds.map((id) => {
           const country = COUNTRIES.find((c) => c.id === id);
           const isNew = initialUnlockedIdsRef.current ? !initialUnlockedIdsRef.current.has(id) : false;
@@ -905,82 +968,116 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f2f5f9',
+    backgroundColor: COLORS.canvas,
   },
   loadingContainer: {
     alignItems: 'center',
     justifyContent: 'center',
   },
   loadingText: {
-    fontSize: 16,
-    color: '#5b6b7c',
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.muted,
   },
   mapBackground: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#f2f5f9',
+    backgroundColor: COLORS.canvas,
     overflow: 'hidden',
   },
   container: {
     padding: 20,
     paddingBottom: 40,
   },
-  headerRow: {
+
+  // Dashboard fixe
+  dashboard: {
+    backgroundColor: COLORS.navy,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 16,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: COLORS.navy,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  dashboardTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
+    justifyContent: 'space-between',
   },
-  headerSpacer: {
-    width: 80,
+  dashboardTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: COLORS.surface,
+    letterSpacing: 0.2,
   },
-  headerActions: {
+  dashboardActions: {
     flexDirection: 'row',
     gap: 8,
   },
-  title: {
-    flex: 1,
-    fontSize: 26,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    color: '#1c2733',
-  },
-  soundButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#ffffff',
+  dashboardIconButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 1,
   },
-  soundButtonText: {
-    fontSize: 18,
+  dashboardIconText: {
+    fontSize: 16,
   },
+  dashboardStatsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  statChip: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  statChipLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.65)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  statChipValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: COLORS.gold,
+  },
+
+  // Carte pays
   card: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: COLORS.surface,
+    borderRadius: 20,
+    padding: 18,
     marginBottom: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: COLORS.navy,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 1,
     overflow: 'hidden',
   },
   celebrateOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#2e9e5b',
+    backgroundColor: COLORS.success,
   },
   flagBackground: {
     position: 'absolute',
     right: -14,
     top: -24,
     fontSize: 100,
-    opacity: 0.12,
+    opacity: 0.1,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -988,168 +1085,187 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   countryName: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#1c2733',
+    fontSize: 19,
+    fontWeight: '800',
+    color: COLORS.navy,
   },
   unlockedBadge: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    backgroundColor: '#2e9e5b',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.success,
+    borderWidth: 1.5,
+    borderColor: COLORS.success,
+    backgroundColor: 'transparent',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
     overflow: 'hidden',
   },
   criterion: {
-    fontSize: 14,
-    color: '#5b6b7c',
+    fontSize: 12,
+    fontWeight: '500',
+    color: COLORS.muted,
     marginTop: 4,
   },
   score: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginTop: 8,
+    fontSize: 18,
+    fontWeight: '800',
+    marginTop: 10,
   },
   progressTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#e4e9ef',
-    marginTop: 6,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: COLORS.track,
+    marginTop: 8,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 3,
-    backgroundColor: '#2e5fa3',
+    borderRadius: 999,
+    backgroundColor: COLORS.blue,
   },
   buttonRow: {
     flexDirection: 'row',
-    marginTop: 12,
-    gap: 8,
+    marginTop: 14,
+    gap: 10,
   },
   buttonFlex: {
     flex: 1,
   },
   button: {
-    backgroundColor: '#2e5fa3',
-    paddingVertical: 10,
-    borderRadius: 8,
+    backgroundColor: COLORS.blue,
+    paddingVertical: 12,
+    borderRadius: 999,
     alignItems: 'center',
   },
   quizButton: {
-    backgroundColor: '#7c5cbf',
-    paddingVertical: 10,
-    borderRadius: 8,
+    backgroundColor: COLORS.teal,
+    paddingVertical: 12,
+    borderRadius: 999,
     alignItems: 'center',
   },
   buttonDisabled: {
-    backgroundColor: '#c3cad3',
+    backgroundColor: COLORS.disabled,
   },
   buttonContent: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  lockIcon: {
-    fontSize: 14,
-    marginRight: 6,
-  },
   buttonText: {
-    color: '#ffffff',
-    fontWeight: '600',
-    fontSize: 15,
+    color: COLORS.surface,
+    fontWeight: '800',
+    fontSize: 14,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   buttonTextDisabled: {
-    color: '#7c8794',
+    color: COLORS.muted,
   },
+
+  // Modales (quiz, détail, choix) : même fond carte + voile navy translucide
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(28, 39, 51, 0.55)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
   },
+  modalTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(22, 35, 58, 0.45)',
+  },
   modalCard: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 20,
+    backgroundColor: COLORS.surface,
+    borderRadius: 24,
+    padding: 22,
+    shadowColor: COLORS.navy,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
   },
   modalFlag: {
     fontSize: 40,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   modalPrompt: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#1c2733',
+    fontWeight: '800',
+    color: COLORS.navy,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 18,
   },
   modalOption: {
     borderWidth: 1.5,
-    borderColor: '#d7dee6',
-    borderRadius: 10,
-    paddingVertical: 12,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    borderRadius: 14,
+    paddingVertical: 13,
     paddingHorizontal: 12,
     marginBottom: 10,
     alignItems: 'center',
   },
   modalOptionCorrect: {
-    borderColor: '#2e9e5b',
-    backgroundColor: '#e5f6ec',
+    borderColor: COLORS.success,
+    backgroundColor: 'rgba(31, 157, 99, 0.12)',
   },
   modalOptionWrong: {
-    borderColor: '#d94f3d',
-    backgroundColor: '#fbe9e6',
+    borderColor: COLORS.danger,
+    backgroundColor: 'rgba(201, 74, 58, 0.10)',
   },
   modalOptionText: {
     fontSize: 15,
-    fontWeight: '500',
-    color: '#1c2733',
+    fontWeight: '700',
+    color: COLORS.navy,
     textAlign: 'center',
   },
   modalOptionEmoji: {
     fontSize: 32,
   },
   modalResultText: {
-    marginTop: 4,
-    fontSize: 15,
-    fontWeight: '600',
+    marginTop: 6,
+    fontSize: 14,
+    fontWeight: '700',
     textAlign: 'center',
   },
   modalResultCorrect: {
-    color: '#2e9e5b',
+    color: COLORS.success,
   },
   modalResultWrong: {
-    color: '#d94f3d',
+    color: COLORS.danger,
   },
   detailCard: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 24,
+    backgroundColor: COLORS.surface,
+    borderRadius: 24,
+    padding: 26,
+    shadowColor: COLORS.navy,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
   },
   detailCloseButton: {
     position: 'absolute',
-    top: 12,
-    right: 12,
+    top: 14,
+    right: 14,
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#f2f5f9',
+    backgroundColor: COLORS.canvas,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1,
   },
   detailCloseText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#5b6b7c',
+    fontWeight: '700',
+    color: COLORS.muted,
   },
   detailFlag: {
     fontSize: 56,
@@ -1158,8 +1274,8 @@ const styles = StyleSheet.create({
   },
   detailName: {
     fontSize: 22,
-    fontWeight: 'bold',
-    color: '#1c2733',
+    fontWeight: '800',
+    color: COLORS.navy,
     textAlign: 'center',
     marginBottom: 16,
   },
@@ -1167,41 +1283,48 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: '#eef1f5',
+    borderTopColor: COLORS.border,
   },
   detailLabel: {
-    fontSize: 14,
-    color: '#5b6b7c',
+    fontSize: 13,
+    fontWeight: '500',
+    color: COLORS.muted,
   },
   detailValue: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#1c2733',
+    fontWeight: '700',
+    color: COLORS.navy,
   },
   detailScore: {
-    marginTop: 16,
+    marginTop: 18,
     textAlign: 'center',
-    fontSize: 17,
+    fontSize: 18,
   },
   choiceCard: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 20,
+    backgroundColor: COLORS.surface,
+    borderRadius: 24,
+    padding: 22,
+    shadowColor: COLORS.navy,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
   },
   choiceTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1c2733',
+    fontSize: 19,
+    fontWeight: '800',
+    color: COLORS.navy,
     textAlign: 'center',
     marginBottom: 4,
   },
   choiceSubtitle: {
     fontSize: 14,
-    color: '#5b6b7c',
+    fontWeight: '500',
+    color: COLORS.muted,
     textAlign: 'center',
     marginBottom: 16,
   },
@@ -1209,13 +1332,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: '#d7dee6',
-    borderRadius: 12,
-    padding: 12,
+    borderColor: COLORS.border,
+    borderRadius: 16,
+    padding: 14,
     marginBottom: 10,
   },
   choiceFlag: {
-    fontSize: 36,
+    fontSize: 34,
     marginRight: 12,
   },
   choiceInfo: {
@@ -1223,12 +1346,13 @@ const styles = StyleSheet.create({
   },
   choiceName: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#1c2733',
+    fontWeight: '700',
+    color: COLORS.navy,
   },
   choiceArea: {
     fontSize: 13,
-    color: '#5b6b7c',
+    fontWeight: '500',
+    color: COLORS.muted,
     marginTop: 2,
   },
 });
