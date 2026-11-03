@@ -1614,7 +1614,7 @@ function AppContent() {
       {/* Debug temporaire : à retirer une fois le bug d'affichage résolu. */}
       <View style={styles.debugOverlay} pointerEvents="none">
         <Text style={styles.debugOverlayText}>
-          insets top={insets.top} bottom={insets.bottom} left={insets.left} right={insets.right}
+          BUILD-ZFIX2 · insets top={insets.top} bottom={insets.bottom} left={insets.left} right={insets.right}
         </Text>
       </View>
       <DashboardBar
