@@ -1611,6 +1611,12 @@ function AppContent() {
     <View style={styles.safeArea}>
       <StatusBar style="auto" />
       <WorldMapBackground unlockedFlags={unlockedFlags} />
+      {/* Debug temporaire : à retirer une fois le bug d'affichage résolu. */}
+      <View style={styles.debugOverlay} pointerEvents="none">
+        <Text style={styles.debugOverlayText}>
+          insets top={insets.top} bottom={insets.bottom} left={insets.left} right={insets.right}
+        </Text>
+      </View>
       <DashboardBar
         totalScore={totalScore}
         unlockedCount={unlockedIds.length}
@@ -1676,6 +1682,23 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: COLORS.canvas,
     overflow: 'hidden',
+  },
+  // Debug temporaire : position fixe indépendante des insets, pour rester
+  // visible même si insets.top est anormal. À retirer après résolution.
+  debugOverlay: {
+    position: 'absolute',
+    top: 40,
+    left: 10,
+    right: 10,
+    zIndex: 999,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    padding: 6,
+    borderRadius: 6,
+  },
+  debugOverlayText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   container: {
     padding: 20,
