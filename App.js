@@ -4,7 +4,7 @@ import * as Haptics from 'expo-haptics';
 import Svg, { Circle, Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Palette resserrée à 2 couleurs principales + variations fonctionnelles,
 // partagée par tout l'écran (liste, détail, choix, quiz) pour une identité
@@ -1385,13 +1385,19 @@ function CountryCard({ country, allCountries, score, threshold, isNew, isUnlocke
   );
 }
 
+// Padding du haut du dashboard hors zone de sécurité (voir insetTop, ajouté
+// par-dessus dans DashboardBar) — valeur dupliquée ici plutôt que relue
+// depuis styles.dashboard.paddingTop pour rester fiable : StyleSheet.create
+// ne garantit pas de renvoyer l'objet brut sur toutes les configurations RN.
+const DASHBOARD_BASE_PADDING_TOP = 14;
+
 // Barre fixe en haut de l'écran principal (hors ScrollView, donc toujours
 // visible même quand la liste défile) : titre de dirigeant (voir
 // getLeaderTitle), score total, progression globale (pays débloqués /
 // total), et raccourcis son/réinitialisation.
-function DashboardBar({ totalScore, unlockedCount, totalCount, leaderTitle, soundEnabled, onToggleSound, onReset }) {
+function DashboardBar({ totalScore, unlockedCount, totalCount, leaderTitle, soundEnabled, onToggleSound, onReset, insetTop }) {
   return (
-    <View style={styles.dashboard}>
+    <View style={[styles.dashboard, { paddingTop: DASHBOARD_BASE_PADDING_TOP + insetTop }]}>
       <View style={styles.dashboardTopRow}>
         <View>
           <Text style={styles.dashboardTitle}>Conquer The World</Text>
@@ -1431,6 +1437,13 @@ export default function App() {
 }
 
 function AppContent() {
+  // Marges de sécurité calculées explicitement plutôt que déléguées au
+  // padding automatique de SafeAreaView : sur certains appareils/versions
+  // d'Android en edge-to-edge, ce padding automatique a été observé comme
+  // mal calculé (contenu écrasé hors écran). Appliquées à la main sur le
+  // dashboard (haut) et le bas de la liste (bas) uniquement — WorldMapBackground
+  // continue de s'étendre derrière les barres système, c'est voulu.
+  const insets = useSafeAreaInsets();
   const defaultState = useRef(getDefaultGameState()).current;
   const [scores, setScores] = useState(defaultState.scores);
   const [unlockedIds, setUnlockedIds] = useState(defaultState.unlockedIds);
@@ -1588,14 +1601,14 @@ function AppContent() {
 
   if (!isLoaded) {
     return (
-      <SafeAreaView style={[styles.safeArea, styles.loadingContainer]}>
+      <View style={[styles.safeArea, styles.loadingContainer, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <Text style={styles.loadingText}>Chargement...</Text>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       <StatusBar style="auto" />
       <WorldMapBackground unlockedFlags={unlockedFlags} />
       <DashboardBar
@@ -1606,8 +1619,9 @@ function AppContent() {
         soundEnabled={soundEnabled}
         onToggleSound={() => setSoundEnabled((v) => !v)}
         onReset={handleResetPress}
+        insetTop={insets.top}
       />
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView contentContainerStyle={[styles.container, { paddingBottom: 40 + insets.bottom }]}>
         {unlockedIds.map((id) => {
           const country = COUNTRIES.find((c) => c.id === id);
           const isNew = initialUnlockedIdsRef.current ? !initialUnlockedIdsRef.current.has(id) : false;
@@ -1640,7 +1654,7 @@ function AppContent() {
         onResolve={handleResolveEvent}
         onClose={() => setPendingEvent(null)}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -1672,7 +1686,7 @@ const styles = StyleSheet.create({
   dashboard: {
     backgroundColor: COLORS.navy,
     paddingHorizontal: 20,
-    paddingTop: 14,
+    paddingTop: DASHBOARD_BASE_PADDING_TOP,
     paddingBottom: 16,
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
