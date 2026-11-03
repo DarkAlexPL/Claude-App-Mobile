@@ -3,8 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle, Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, Animated, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 // Palette resserrée à 2 couleurs principales + variations fonctionnelles,
 // partagée par tout l'écran (liste, détail, choix, quiz) pour une identité
@@ -1423,14 +1422,6 @@ function DashboardBar({ totalScore, unlockedCount, totalCount, leaderTitle, soun
 }
 
 export default function App() {
-  return (
-    <SafeAreaProvider>
-      <AppContent />
-    </SafeAreaProvider>
-  );
-}
-
-function AppContent() {
   const defaultState = useRef(getDefaultGameState()).current;
   const [scores, setScores] = useState(defaultState.scores);
   const [unlockedIds, setUnlockedIds] = useState(defaultState.unlockedIds);
