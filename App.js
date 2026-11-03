@@ -1614,8 +1614,14 @@ function AppContent() {
       {/* Debug temporaire : à retirer une fois le bug d'affichage résolu. */}
       <View style={styles.debugOverlay} pointerEvents="none">
         <Text style={styles.debugOverlayText}>
-          BUILD-ZFIX2 · insets top={insets.top} bottom={insets.bottom} left={insets.left} right={insets.right}
+          BUILD-ZFIX3 · insets top={insets.top} bottom={insets.bottom} left={insets.left} right={insets.right}
         </Text>
+      </View>
+      {/* Test isolant temporaire : carré rouge en flux normal, sans aucune
+          dépendance à nos styles, pour savoir si n'importe quel contenu en
+          flux normal s'affiche à cet endroit. À retirer après diagnostic. */}
+      <View style={{ height: 100, width: 100, backgroundColor: 'red' }}>
+        <Text style={{ color: 'white', fontWeight: 'bold' }}>TEST</Text>
       </View>
       <DashboardBar
         totalScore={totalScore}
@@ -1682,12 +1688,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: COLORS.canvas,
     overflow: 'hidden',
-    // zIndex explicite : sans ça, l'ordre d'empilement entre cette vue en
-    // position absolute et ses voisins en flux normal (dashboard, liste)
-    // s'est avéré incohérent sur au moins un appareil/version de React
-    // Native (la carte s'affichait par-dessus tout le reste au lieu
-    // d'en dessous). -1 force ce fond à rester toujours derrière.
-    zIndex: -1,
   },
   // Debug temporaire : position fixe indépendante des insets, pour rester
   // visible même si insets.top est anormal. À retirer après résolution.
